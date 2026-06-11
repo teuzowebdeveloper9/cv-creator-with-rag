@@ -25,3 +25,16 @@ class LLMOrchestrator:
                     continue
         
         raise Exception("No LLM providers available or all failed.")
+
+    def stream(self, prompt: str, system_prompt: str = ""):
+        for provider in self.providers:
+            if provider.is_available():
+                try:
+                    logger.info(f"Attempting streaming with {provider.__class__.__name__}")
+                    yield from provider.stream(prompt, system_prompt)
+                    return # Exit if successful
+                except Exception as e:
+                    logger.error(f"Error streaming with {provider.__class__.__name__}: {str(e)}")
+                    continue
+        
+        raise Exception("No LLM providers available or all failed for streaming.")

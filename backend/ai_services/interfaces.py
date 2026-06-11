@@ -7,6 +7,10 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
+    def stream(self, prompt: str, system_prompt: str = ""):
+        pass
+
+    @abstractmethod
     def is_available(self) -> bool:
         pass
 

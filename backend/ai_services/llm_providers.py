@@ -20,6 +20,14 @@ class AnthropicProvider(LLMProvider):
         response = self.model.invoke(messages)
         return response.content
 
+    def stream(self, prompt: str, system_prompt: str = ""):
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=prompt)
+        ]
+        for chunk in self.model.stream(messages):
+            yield chunk.content
+
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
 
@@ -36,6 +44,14 @@ class OpenAIProvider(LLMProvider):
         ]
         response = self.model.invoke(messages)
         return response.content
+
+    def stream(self, prompt: str, system_prompt: str = ""):
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=prompt)
+        ]
+        for chunk in self.model.stream(messages):
+            yield chunk.content
 
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
@@ -54,6 +70,14 @@ class GoogleProvider(LLMProvider):
         response = self.model.invoke(messages)
         return response.content
 
+    def stream(self, prompt: str, system_prompt: str = ""):
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=prompt)
+        ]
+        for chunk in self.model.stream(messages):
+            yield chunk.content
+
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
 
@@ -70,6 +94,14 @@ class MistralProvider(LLMProvider):
         ]
         response = self.model.invoke(messages)
         return response.content
+
+    def stream(self, prompt: str, system_prompt: str = ""):
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=prompt)
+        ]
+        for chunk in self.model.stream(messages):
+            yield chunk.content
 
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""

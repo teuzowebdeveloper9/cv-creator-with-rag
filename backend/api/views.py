@@ -45,6 +45,9 @@ class DocumentListView(generics.ListAPIView):
     queryset = Document.objects.all().order_by('-created_at')
     serializer_class = DocumentSerializer
 
+from django.http import StreamingHttpResponse
+import json
+
 class GenerateView(APIView):
     def post(self, request):
         serializer = GenerateSerializer(data=request.data)
@@ -57,8 +60,11 @@ class GenerateView(APIView):
         orchestrator = LLMOrchestrator()
 
         # 1. Retrieve relevant context
-        context_fragments = vector_store.search(collection_name="user_context", query=job_description, limit=10)
-        context_text = "\n---\n".join([f["text"] for f in context_fragments])
+        try:
+            context_fragments = vector_store.search(collection_name="user_context", query=job_description, limit=10)
+            context_text = "\n---\n".join([f["text"] for f in context_fragments])
+        except Exception as e:
+            return Response({"error": f"Vector store search failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # 2. Build Prompt
         system_prompt = """
@@ -79,9 +85,15 @@ class GenerateView(APIView):
         Gere o currículo otimizado para esta vaga.
         """
 
-        # 3. Generate with Fallback
-        try:
-            cv_markdown = orchestrator.generate(prompt, system_prompt)
-            return Response({"cv": cv_markdown}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # 3. Stream with Fallback
+        def stream_generator():
+            try:
+                for chunk in orchestrator.stream(prompt, system_prompt):
+                    if chunk:
+                        yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        response = StreamingHttpResponse(stream_generator(), content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        return response
