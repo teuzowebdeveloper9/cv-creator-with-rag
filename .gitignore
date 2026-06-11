@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+db.sqlite3
+/backend/db/
+
+# Node
+node_modules/
+dist/
+.eslintcache
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db

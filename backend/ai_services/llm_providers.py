@@ -21,7 +21,7 @@ class AnthropicProvider(LLMProvider):
         return response.content
 
     def is_available(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
 
 class OpenAIProvider(LLMProvider):
     def __init__(self):
@@ -38,7 +38,7 @@ class OpenAIProvider(LLMProvider):
         return response.content
 
     def is_available(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
 
 class GoogleProvider(LLMProvider):
     def __init__(self):
@@ -55,7 +55,7 @@ class GoogleProvider(LLMProvider):
         return response.content
 
     def is_available(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
 
 class MistralProvider(LLMProvider):
     def __init__(self):
@@ -72,4 +72,4 @@ class MistralProvider(LLMProvider):
         return response.content
 
     def is_available(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""

@@ -4,6 +4,17 @@ from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator
 from .serializers import GenerateSerializer
+import os
+
+class ProviderStatusView(APIView):
+    def get(self, request):
+        orchestrator = LLMOrchestrator()
+        status_data = {}
+        for provider in orchestrator.providers:
+            provider_name = provider.__class__.__name__.lower().replace('provider', '')
+            status_data[provider_name] = provider.is_available()
+        
+        return Response(status_data, status=status.HTTP_200_OK)
 
 class UploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
