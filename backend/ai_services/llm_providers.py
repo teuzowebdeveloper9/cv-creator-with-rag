@@ -56,20 +56,20 @@ class OpenAIProvider(LLMProvider):
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
 
-import google.generativeai as genai
-
 class GoogleProvider(LLMProvider):
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_API_KEY")
-        self.model_name = "gemini-1.5-flash" # Use flash as default
+        self.model_name = "gemini-1.5-flash"
         if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel(self.model_name)
+            self.client = genai.Client(api_key=self.api_key)
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         try:
             full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-            response = self.model.generate_content(full_prompt)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=full_prompt
+            )
             return response.text
         except Exception as e:
             logger.error(f"Google SDK generate failed: {str(e)}")
@@ -78,7 +78,10 @@ class GoogleProvider(LLMProvider):
     def stream(self, prompt: str, system_prompt: str = ""):
         try:
             full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-            response = self.model.generate_content(full_prompt, stream=True)
+            response = self.client.models.generate_content_stream(
+                model=self.model_name,
+                contents=full_prompt
+            )
             for chunk in response:
                 if chunk.text:
                     yield chunk.text
@@ -113,3 +116,4 @@ class MistralProvider(LLMProvider):
 
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
+y and self.api_key != ""
