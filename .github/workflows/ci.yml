@@ -31,10 +31,10 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt
-      - name: Run Django Checks
+      - name: Run Tests
         run: |
           cd backend
-          python manage.py check
+          python -m pytest tests/
 
   frontend-build:
     runs-on: ubuntu-latest

@@ -40,10 +40,10 @@ class QdrantVectorStore(VectorStore):
         self._ensure_collection(collection_name)
         query_vector = self.encoder.encode(query).tolist()
         
-        results = self.client.search(
+        results = self.client.query_points(
             collection_name=collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             limit=limit
-        )
+        ).points
         
         return [hit.payload for hit in results]

@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mateus da Silva Oliveira - Currículo Desenvolvedor Python</title>
+  <style>
+    :root {
+      --text: #222;
+      --muted: #4a5568;
+      --accent: #0f172a;
+      --border: #e2e8f0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto", sans-serif;
+      color: var(--text);
+      background: #f5f7fb;
+    }
+
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      padding: 18mm 18mm 20mm 18mm;
+      margin: 10mm auto;
+      background: #fff;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      position: relative;
+    }
+
+    header {
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 12px;
+    }
+
+    .header-main {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .profile-photo-wrap {
+      width: 104px;
+      height: 104px;
+      flex: 0 0 104px;
+      overflow: hidden;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      background: #ead8ce;
+      box-shadow: 0 0 0 1px var(--border), 0 8px 22px rgba(15, 23, 42, 0.16);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .profile-photo-wrap span {
+      display: none;
+      color: var(--muted);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+
+    .profile-photo-wrap.photo-missing span {
+      display: block;
+    }
+
+    .profile-photo {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      object-position: center center;
+      background: #ead8ce;
+    }
+
+    .profile-copy {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .name {
+      font-size: 26px;
+      letter-spacing: 0.5px;
+      font-weight: 800;
+    }
+
+    .role {
+      font-size: 14px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .contact {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .contact a {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .contact a:hover {
+      color: var(--accent);
+    }
+
+    .contact svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    h2 {
+      font-size: 13px;
+      letter-spacing: 0.6px;
+      color: var(--accent);
+      margin: 0 0 8px;
+      text-transform: uppercase;
+    }
+
+    p,
+    li {
+      font-size: 12px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .pill {
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 11px;
+      color: #0b1220;
+      white-space: nowrap;
+    }
+
+    .sub {
+      font-weight: 700;
+      margin-bottom: 2px;
+      font-size: 12px;
+      color: #0d1b2a;
+    }
+
+    .experience {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .exp-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fcfdff;
+    }
+
+    .exp-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+
+    .exp-title {
+      font-weight: 700;
+      font-size: 12.5px;
+    }
+
+    .exp-meta {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    ul {
+      padding-left: 16px;
+      margin: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .fit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .fit-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 8px 10px;
+      font-size: 11.5px;
+      line-height: 1.45;
+    }
+
+    .note {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    @media print {
+      body {
+        background: #fff;
+        margin: 0;
+      }
+
+      .page {
+        margin: 0;
+        box-shadow: none;
+        page-break-after: always;
+      }
+
+      .page:last-of-type {
+        page-break-after: auto;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .header-main {
+        align-items: flex-start;
+      }
+
+      .profile-photo-wrap {
+        width: 88px;
+        height: 88px;
+        flex-basis: 88px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <header>
+      <div class="header-main">
+        <div class="profile-photo-wrap">
+          <img class="profile-photo" src="assets/profile-photo.png" alt="Mateus da Silva Oliveira"
+            onerror="this.parentElement.classList.add('photo-missing'); this.remove();" />
+          <span>MS</span>
+        </div>
+        <div class="profile-copy">
+          <div class="name">Mateus da Silva Oliveira</div>
+          <div class="role">Desenvolvedor Full Stack com foco em Python | FastAPI, React, Next.js, Vite, IA aplicada,
+            RAG, agentes e cloud.</div>
+          <div class="contact">
+            <span>mateussoftwaredeveloper@gmail.com</span>
+            <a href="https://github.com/teuzowebdeveloper9" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 .5C5.73.5.5 5.74.5 12.02c0 5.1 3.29 9.42 7.86 10.95.58.11.79-.25.79-.56 0-.27-.01-1.15-.02-2.09-3.2.7-3.88-1.39-3.88-1.39-.52-1.33-1.27-1.68-1.27-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.02 1.76 2.67 1.25 3.32.95.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.3 1.18-3.11-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.19a10.9 10.9 0 0 1 5.74 0c2.19-1.5 3.15-1.19 3.15-1.19.62 1.58.23 2.75.11 3.04.73.81 1.17 1.85 1.17 3.11 0 4.43-2.69 5.39-5.25 5.68.41.36.77 1.08.77 2.17 0 1.57-.02 2.84-.02 3.23 0 .31.21.68.8.56A10.53 10.53 0 0 0 23.5 12c0-6.28-5.23-11.5-11.5-11.5Z" />
+              </svg>
+              <span>GitHub</span>
+            </a>
+            <a href="https://www.linkedin.com/in/matheus-da-silva-%F0%9F%87%A7%F0%9F%87%B7-b96541380/" target="_blank"
+              rel="noopener">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M20.45 20.45h-3.56v-5.29c0-1.26-.02-2.88-1.76-2.88-1.77 0-2.04 1.38-2.04 2.79v5.38H9.54V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.44v6.3ZM5.34 7.43a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14ZM3.55 20.45h3.6V9h-3.6v11.45ZM22.23 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.46c.98 0 1.77-.77 1.77-1.72V1.72C24 .77 23.21 0 22.23 0Z" />
+              </svg>
+              <span>LinkedIn</span>
+            </a>
+            <a href="https://my-new-portfolio-ten-orpin.vercel.app/" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 2.5C6.76 2.5 2.5 6.76 2.5 12S6.76 21.5 12 21.5 21.5 17.24 21.5 12 17.24 2.5 12 2.5Zm7 8h-2.15c-.13-1.4-.53-2.7-1.17-3.78A7.01 7.01 0 0 1 19 10.5Zm-3.18 0H12.9V5.62c1.2.26 2.3 1.5 2.88 3.38.16.5.27 1.04.34 1.5Zm-4.92 0H8.18c.07-.46.18-1 .34-1.5.58-1.88 1.68-3.12 2.88-3.38V10.5Zm0 3v4.88c-1.2-.26-2.3-1.5-2.88-3.38a8.6 8.6 0 0 1-.34-1.5Zm1.82 4.88V13.5h2.92c-.07.46-.18 1-.34 1.5-.58 1.88-1.68 3.12-2.88 3.38Zm0-5.88V10.5h2.92c.08.5.13 1.02.13 1.5s-.05 1-.13 1.5ZM8.18 12c0 .52.05 1.04.13 1.5h2.91V10.5H8.3c-.08.46-.12.98-.12 1.5Zm-1.2 0c0-.69.08-1.36.24-2H5a7.01 7.01 0 0 0 1.98 4.28c-.24-.68-.4-1.41-.5-2.28Zm.74-3c.14-.43.32-.84.52-1.22.34-.62.73-1.18 1.16-1.65A6.97 6.97 0 0 0 5 10.5h2.72Zm0 6H5a6.97 6.97 0 0 0 2.4 3.38c-.43-.47-.82-1.03-1.16-1.65-.2-.38-.38-.79-.52-1.22Zm9.56 0c-.14.43-.32.84-.52 1.22-.34.62-.73 1.18-1.16 1.65A6.97 6.97 0 0 0 19 13.5h-2.72Zm0-6H19a6.97 6.97 0 0 0-2.4-3.38c.43.47.82 1.03 1.16 1.65.2.38.38.79.52 1.22Z" />
+              </svg>
+              <span>Portfólio</span>
+            </a>
+            <span>Remoto - Brasil</span>
+            <span>Inglês conversacional</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="section">
+      <h2>Resumo Profissional</h2>
+      <p>Desenvolvedor Full Stack com foco em Python, backend, microsserviços, APIs e infraestrutura de IA aplicada.
+        Atuo com FastAPI, serviços Python, React, Next.js, Vite, integrações com LLMs, RAG, agentes de IA, ferramentas
+        MCP, LangChain, LangGraph, LlamaIndex, bancos vetoriais e cloud, conectando engenharia de software a produtos
+        reais em produção.</p>
+      <p>Tenho prática em construir serviços para fluxos de IA com grandes contextos, prompts extensos, recuperação de
+        conhecimento, orquestração de múltiplos agentes e ferramentas customizadas para agentes de código. Também
+        trabalho com APIs para e-commerce, observabilidade de APIs Python, processamento assíncrono, retry, recovery,
+        CI/CD, Docker, GCP e Cloudflare, priorizando soluções simples de operar, evoluir e escalar.</p>
+    </section>
+
+    <section class="section">
+      <h2>Destaques Técnicos</h2>
+      <div class="fit-grid">
+        <div class="fit-item"><strong>Full stack Python</strong> APIs e microsserviços com Python/FastAPI, além de
+          interfaces com React, Next.js e Vite.</div>
+        <div class="fit-item"><strong>Agentes e MCP</strong> criação de ferramentas MCP, integração de ferramentas em
+          agentes de IA de código e orquestração de múltiplos agentes.</div>
+        <div class="fit-item"><strong>RAG e bancos vetoriais</strong> uso de LangChain, LlamaIndex, embeddings e Qdrant
+          para contextos grandes, prompts extensos e conhecimento do cliente.</div>
+        <div class="fit-item"><strong>Cloud e operação</strong> experiência com GCP na High Scale, Cloudflare na Lasy
+          AI, observabilidade, filas, streaming, retry e recovery.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Skills</h2>
+      <div class="two-col">
+        <div class="section">
+          <div class="sub">Back-end Python e APIs</div>
+          <div class="pill-list">
+            <span class="pill">Python</span>
+            <span class="pill">FastAPI</span>
+            <span class="pill">Pandas</span>
+            <span class="pill">APIs REST</span>
+            <span class="pill">Microsserviços</span>
+            <span class="pill">Serviços de IA</span>
+            <span class="pill">Webhooks</span>
+            <span class="pill">Processamento Assíncrono</span>
+            <span class="pill">Streaming</span>
+            <span class="pill">Auth e RBAC</span>
+            <span class="pill">Observabilidade de APIs</span>
+            <span class="pill">Retry / Recovery</span>
+          </div>
+          <div class="sub">IA, Agentes e RAG</div>
+          <div class="pill-list">
+            <span class="pill">LangChain</span>
+            <span class="pill">LangGraph</span>
+            <span class="pill">LlamaIndex</span>
+            <span class="pill">RAG</span>
+            <span class="pill">Qdrant</span>
+            <span class="pill">Embeddings</span>
+            <span class="pill">Agentes de IA</span>
+            <span class="pill">Ferramentas MCP</span>
+            <span class="pill">MCP em Python</span>
+            <span class="pill">Orquestração Multiagente</span>
+            <span class="pill">Agentes de Código</span>
+            <span class="pill">LLMs (GPT, Claude, Mistral)</span>
+            <span class="pill">Prompt Workflows</span>
+          </div>
+          <div class="sub">Produto Web e Integrações</div>
+          <div class="pill-list">
+            <span class="pill">React</span>
+            <span class="pill">Next.js</span>
+            <span class="pill">Vite</span>
+            <span class="pill">JavaScript</span>
+            <span class="pill">TypeScript</span>
+            <span class="pill">Node.js</span>
+            <span class="pill">NestJS</span>
+            <span class="pill">Java</span>
+            <span class="pill">Spring Boot</span>
+            <span class="pill">API Meta</span>
+            <span class="pill">Ferramentas Customizadas</span>
+            <span class="pill">Golang</span>
+            <span class="pill">Claude Code CLI</span>
+            <span class="pill">Codex CLI</span>
+            <span class="pill">Cursor</span>
+            <span class="pill">RabbitMQ</span>
+          </div>
+        </div>
+        <div class="section">
+          <div class="sub">Dados, Vetores e ORM</div>
+          <div class="pill-list">
+            <span class="pill">Qdrant</span>
+            <span class="pill">Vector Search</span>
+            <span class="pill">PostgreSQL</span>
+            <span class="pill">MongoDB</span>
+            <span class="pill">MySQL</span>
+            <span class="pill">Oracle Database</span>
+            <span class="pill">Oracle DB</span>
+            <span class="pill">SQL Server</span>
+            <span class="pill">mssql-python</span>
+            <span class="pill">Supabase</span>
+            <span class="pill">TypeORM</span>
+            <span class="pill">Prisma ORM</span>
+            <span class="pill">Modelagem de Dados</span>
+            <span class="pill">Migrações</span>
+            <span class="pill">Tuning de Performance</span>
+          </div>
+          <div class="sub">Cloud, DevOps e Confiabilidade</div>
+          <div class="pill-list">
+            <span class="pill">Google Cloud Platform</span>
+            <span class="pill">Cloudflare Workers</span>
+            <span class="pill">Cloudflare Queues</span>
+            <span class="pill">Docker</span>
+            <span class="pill">CI/CD</span>
+            <span class="pill">AWS</span>
+            <span class="pill">SQS</span>
+            <span class="pill">CloudWatch</span>
+            <span class="pill">Kubernetes</span>
+            <span class="pill">Observabilidade</span>
+            <span class="pill">Retry / Recovery</span>
+            <span class="pill">Git</span>
+            <span class="pill">GitFlow</span>
+          </div>
+          <div class="sub">Qualidade e Arquitetura</div>
+          <div class="pill-list">
+            <span class="pill">Clean Code</span>
+            <span class="pill">Arquitetura Hexagonal</span>
+            <span class="pill">Code Review</span>
+            <span class="pill">TDD</span>
+            <span class="pill">Jest</span>
+            <span class="pill">JUnit</span>
+            <span class="pill">.NET testing</span>
+            <span class="pill">Documentação Técnica</span>
+            <span class="pill">Segurança em IA</span>
+            <span class="pill">Prompt Injection</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Experiência Profissional</h2>
+      <div class="experience">
+        <div class="exp-item">
+          <div class="exp-header">
+            <div class="exp-title">Lasy AI - Desenvolvedor Full Stack / Engenheiro de IA</div>
+            <div class="exp-meta">Set 2025 - Atual</div>
+          </div>
+          <p>Atualmente atuo na Lasy AI, startup de Inteligência Artificial focada na criação de aplicações web por meio
+            de prompts, com geração, edição e visualização em tempo real. Desenvolvo microsserviços Python responsáveis
+            por fluxos de IA, uso LangChain para RAG, LangGraph para criação de diferentes agentes de código e
+            ferramentas MCP criadas por mim com Python, integrando ferramentas a agentes e orquestrando múltiplos
+            agentes em fluxos de produto. Também trabalho com Cloudflare Workers, Cloudflare Queues, execução em edge,
+            sandboxes isolados, streaming, observabilidade de APIs Python, retry, recovery e monitoramento, com
+            resultados como redução de fluxos de cerca de 60s para 5-10s e aumento da taxa de sucesso operacional de 85%
+            para 99%.</p>
+        </div>
+
+        <div class="exp-item">
+          <div class="exp-header">
+            <div class="exp-title">High Scale - Desenvolvedor Full Stack</div>
+            <div class="exp-meta">Mai 2025 - Ago 2025</div>
+          </div>
+          <p>Atuei na High Scale em projetos estratégicos de IA aplicados a marketing, vendas e automação B2B,
+            participando desde as fases iniciais do High Copy e do High Agents. Usei FastAPI no desenvolvimento de
+            backend e infraestrutura de IA, em conjunto com TypeScript, C#/.NET, Google Cloud Platform, LangChain,
+            LlamaIndex e RAG para recuperação de conhecimento. No High Copy, trabalhei com Qdrant como banco vetorial
+            para lidar com grandes contextos, prompts extensos e contexto adicional de clientes, além de integrações com
+            LLMs, fluxos de geração assistida e automações conversacionais. Também contribuí com práticas de segurança
+            para IA, incluindo controle de contexto, cuidado com exposição de dados e proteção contra prompt injection.
+          </p>
+        </div>
+
+        <div class="exp-item">
+          <div class="exp-header">
+            <div class="exp-title">Infinity Force - Desenvolvedor Full Stack Freelance</div>
+            <div class="exp-meta">Abr 2025 - Jul 2025</div>
+          </div>
+          <p>Como freelancer na Infinity Force, entre abril de 2025 e julho de 2025, aprofundei minha atuação em
+            infraestrutura, AWS, Docker, DevSecOps e Web3, trabalhando em entregas onde segurança, integração e
+            rastreabilidade importavam desde o início. Atuei nos ecossistemas Solana e Ethereum com JavaScript,
+            CryptoJS, ethers.js e Web3.js, conectando backend, carteiras digitais e fluxos transacionais. A experiência
+            fortaleceu minha leitura de risco em operações sensíveis, contratos de API e jornadas que dependem de
+            consistência entre frontend, backend e blockchain.</p>
+        </div>
+
+        <div class="exp-item">
+          <div class="exp-header">
+            <div class="exp-title">Avanti - Desenvolvedor Full Stack</div>
+            <div class="exp-meta">Abr 2024 - Mai 2025</div>
+          </div>
+          <p>Na Avanti, entre abril de 2024 e maio de 2025, trabalhei em e-commerces sob encomenda para diferentes
+            clientes, com alta exigência de estabilidade, SEO, performance, catálogo, checkout e integrações. A maior
+            parte dos backends era construída com Java/Spring Boot, combinando React.js, PostgreSQL e GCP, mas também
+            desenvolvi APIs em Python para integrações e rotinas de e-commerce, sem foco em IA. Como cada cliente tinha
+            infraestrutura e regras próprias, precisei alternar entre ambientes conforme o projeto, na maioria das vezes
+            em GCP, e tive oportunidade de trabalhar com Oracle Database (Oracle DB) e SQL Server, incluindo integrações
+            via mssql-python. Além do desenvolvimento de software, também contribuía em atividades de DevOps, auxiliando
+            na componentização e padronização de aplicações, automação de processos de entrega e realização de deploys.
+            Em algumas demandas de infraestrutura e ferramentas internas, utilizei Golang para desenvolvimento de
+            utilitários e suporte às operações de DevOps.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="page">
+    <section class="section">
+      <h2>Experiência Profissional (continuação)</h2>
+      <div class="experience">
+        <div class="exp-item">
+          <div class="exp-header">
+            <div class="exp-title">IFCE - Desenvolvedor Full Stack</div>
+            <div class="exp-meta">Nov 2023 - Mar 2024</div>
+          </div>
+          <p>No IFCE, entre novembro de 2023 e março de 2024, atuei como Desenvolvedor Full Stack na reconstrução do
+            Portal Acadêmico, assumindo uma entrega ponta a ponta entre arquitetura, interface, integrações e
+            publicação. Reorganizei estrutura da aplicação, fluxo de dados, SSR, cache e invalidação via webhooks,
+            deixando o portal mais previsível para manutenção e mais preparado para evolução. Foi uma experiência
+            importante de ownership técnico em ambiente institucional, com foco em clareza, estabilidade e continuidade
+            do serviço.</p>
+        </div>
+
+        <div class="exp-item">
+          <div class="exp-header">
+            <div class="exp-title">Egoth - Desenvolvedor Back-end e Mobile</div>
+            <div class="exp-meta">Out 2022 - Nov 2023</div>
+          </div>
+          <p>Também trabalhei no projeto Egoth, entre outubro de 2022 e novembro de 2023, uma loja Android voltada para
+            um público alternativo, com atuação direta em mobile, backend e entrega de produto. Desenvolvi com React
+            Native, Spring Boot, PostgreSQL e Firebase, lidando com APIs, regras de negócio, integrações de pagamento,
+            autenticação, persistência e publicação na Play Store. Esse ciclo me deu base prática para pensar produto de
+            ponta a ponta: da experiência do usuário à confiabilidade das APIs consumidas pelo aplicativo.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Projetos Relevantes</h2>
+      <p>Infraestrutura de IA com Python - Microsserviços, APIs e ferramentas para agentes, RAG, MCP, LangChain,
+        LangGraph, LlamaIndex, Qdrant, embeddings e integração com LLMs. High Copy / High Agents - Produtos de IA com
+        recuperação de conhecimento, grandes contextos, automações conversacionais, integração com API da Meta e suporte
+        a operações de marketing e vendas. Rescisão Fácil - Plataforma de simulação trabalhista com Node.js, MongoDB e
+        Vue.js, sustentando mais de 8 mil visitas por mês. Egoth - Produto SaaS/mobile com aplicativo publicado na Play
+        Store, sistema de indicação, pagamentos com Stripe, APIs backend e fluxos operacionais reais.</p>
+    </section>
+
+    <section class="section">
+      <h2>Formação</h2>
+      <p>Engenharia de Software - JALA Academy (previsão de conclusão: nov 2029) Técnico em Desenvolvimento Web - IFCE
+        (2023 - 2024)</p>
+    </section>
+
+    <section class="section">
+      <h2>Formação Complementar</h2>
+      <p>React Developer (DIO); Fundamentos de Node.js (DIO); Java Developer (DIO); Dominando JavaScript (O Novo
+        Programador); prática contínua com Python, FastAPI, LangChain, LangGraph, LlamaIndex, MCP, RAG, bancos
+        vetoriais, cloud/devops e comunicação em inglês.</p>
+    </section>
+
+    <section class="section">
+      <h2>Comunicação e Estilo de Trabalho</h2>
+      <p>Inglês conversacional, comunicação clara por escrito, documentação objetiva, colaboração com times técnicos e
+        não técnicos, familiaridade com cloud, CI/CD e GitFlow, proatividade, aprendizado contínuo, debugging de APIs
+        Python, leitura de logs, observabilidade e forte foco em resolver problemas com soluções simples de manter.</p>
+    </section>
+
+    <section class="section">
+      <h2>Disponibilidade</h2>
+      <p>Disponível para oportunidades remotas, com flexibilidade para colaboração internacional conforme necessidade da
+        equipe.</p>
+    </section>
+
+    <div class="note">Impressão: A4 - Duas páginas - Currículo com foco em Desenvolvedor Python, backend, IA aplicada,
+      RAG, agentes, MCP, cloud/DevOps e formação.</div>
+  </div>
+</body>
+
+</html>
