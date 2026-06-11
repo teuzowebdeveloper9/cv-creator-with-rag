@@ -56,27 +56,35 @@ class OpenAIProvider(LLMProvider):
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
 
+import google.generativeai as genai
+
 class GoogleProvider(LLMProvider):
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_API_KEY")
+        self.model_name = "gemini-1.5-flash" # Use flash as default
         if self.api_key:
-            self.model = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=self.api_key)
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel(self.model_name)
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ]
-        response = self.model.invoke(messages)
-        return response.content
+        try:
+            full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+            response = self.model.generate_content(full_prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"Google SDK generate failed: {str(e)}")
+            raise e
 
     def stream(self, prompt: str, system_prompt: str = ""):
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ]
-        for chunk in self.model.stream(messages):
-            yield chunk.content
+        try:
+            full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+            response = self.model.generate_content(full_prompt, stream=True)
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
+        except Exception as e:
+            logger.error(f"Google SDK stream failed: {str(e)}")
+            raise e
 
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""

@@ -15,6 +15,7 @@ python-dotenv
 tiktoken
 celery
 redis
+google-generativeai
 pytest
 pytest-django
 pytest-mock
