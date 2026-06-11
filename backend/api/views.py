@@ -1,10 +1,13 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics
 from rest_framework.parsers import MultiPartParser, FormParser
 from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator
-from .serializers import GenerateSerializer
+from .serializers import GenerateSerializer, DocumentSerializer
+from .tasks import process_document_task
+from .models import Document
 import os
+import base64
 
 class ProviderStatusView(APIView):
     def get(self, request):
@@ -24,26 +27,23 @@ class UploadView(APIView):
         if not files:
             return Response({"error": "No files provided"}, status=status.HTTP_400_BAD_REQUEST)
 
-        processor = DocumentProcessor()
-        vector_store = QdrantVectorStore()
-        
-        total_chunks = 0
+        created_docs = []
         for file in files:
             content = file.read()
-            text = ""
-            if file.name.endswith('.pdf'):
-                text = processor.extract_from_pdf(content)
-            elif file.name.endswith('.html'):
-                text = processor.extract_from_html(content)
-            else:
-                continue
+            content_b64 = base64.b64encode(content).decode('utf-8')
             
-            chunks = processor.split_text(text)
-            metadatas = [{"source": file.name} for _ in chunks]
-            vector_store.upsert(collection_name="user_context", texts=chunks, metadatas=metadatas)
-            total_chunks += len(chunks)
+            doc = Document.objects.create(name=file.name, status='PENDING')
+            process_document_task.delay(doc.id, content_b64)
+            created_docs.append(doc.id)
 
-        return Response({"message": f"Successfully processed {len(files)} files into {total_chunks} chunks."}, status=status.HTTP_201_CREATED)
+        return Response({
+            "message": f"Successfully queued {len(files)} files for processing.",
+            "document_ids": created_docs
+        }, status=status.HTTP_202_ACCEPTED)
+
+class DocumentListView(generics.ListAPIView):
+    queryset = Document.objects.all().order_by('-created_at')
+    serializer_class = DocumentSerializer
 
 class GenerateView(APIView):
     def post(self, request):

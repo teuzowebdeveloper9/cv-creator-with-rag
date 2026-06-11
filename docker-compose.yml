@@ -25,6 +25,34 @@ services:
       - DATABASE_PATH=/app/db/db.sqlite3
     depends_on:
       - qdrant
+      - redis
+    restart: always
+
+  redis:
+    image: redis:alpine
+    container_name: cv-generator-redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cv-generator-worker
+    command: celery -A config worker --loglevel=info
+    volumes:
+      - ./backend:/app
+      - backend_db:/app/db
+    env_file:
+      - .env
+    environment:
+      - DATABASE_PATH=/app/db/db.sqlite3
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - qdrant
+      - redis
+      - backend
     restart: always
 
   frontend:
