@@ -60,7 +60,7 @@ class GoogleProvider(LLMProvider):
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_API_KEY")
         if self.api_key:
-            self.model = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=self.api_key)
+            self.model = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=self.api_key)
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         messages = [
