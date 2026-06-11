@@ -191,15 +191,49 @@ function App() {
   };
 
   const handleGenerate = async () => {
-    if (!jobDescription) return;
+    if (!jobDescription || loading) return;
     setLoading(true);
+    setGeneratedCV('');
     try {
-      const response = await axios.post(`${API_BASE_URL}/generate/`, {
-        job_description: jobDescription
+      const response = await fetch(`${API_BASE_URL}/generate/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ job_description: jobDescription }),
       });
-      setGeneratedCV(response.data.cv);
+
+      if (!response.ok) throw new Error('Falha na geração');
+      if (!response.body) throw new Error('Corpo da resposta vazio');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        const chunkValue = decoder.decode(value);
+        
+        // SSE format is data: {...}\n\n
+        const lines = chunkValue.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.chunk) {
+                setGeneratedCV(prev => prev + data.chunk);
+              } else if (data.error) {
+                setUploadStatus({ type: 'error', message: `Erro na IA: ${data.error}` });
+              }
+            } catch (e) {
+              console.error("Erro ao processar chunk:", e);
+            }
+          }
+        }
+      }
     } catch (error) {
-      setUploadStatus({ type: 'error', message: 'Erro ao gerar o currículo com IA.' });
+      setUploadStatus({ type: 'error', message: 'Erro ao conectar com o serviço de IA.' });
     } finally {
       setLoading(false);
     }
