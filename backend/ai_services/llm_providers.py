@@ -1,10 +1,13 @@
 import os
+import logging
 from .interfaces import LLMProvider
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from google import genai
+
+logger = logging.getLogger(__name__)
 
 class AnthropicProvider(LLMProvider):
     def __init__(self):
@@ -13,20 +16,28 @@ class AnthropicProvider(LLMProvider):
             self.model = ChatAnthropic(model="claude-3-5-sonnet-20240620", anthropic_api_key=self.api_key)
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ]
-        response = self.model.invoke(messages)
-        return response.content
+        try:
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt)
+            ]
+            response = self.model.invoke(messages)
+            return response.content
+        except Exception as e:
+            logger.error(f"Anthropic generate failed: {str(e)}")
+            raise e
 
     def stream(self, prompt: str, system_prompt: str = ""):
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ]
-        for chunk in self.model.stream(messages):
-            yield chunk.content
+        try:
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt)
+            ]
+            for chunk in self.model.stream(messages):
+                yield chunk.content
+        except Exception as e:
+            logger.error(f"Anthropic stream failed: {str(e)}")
+            raise e
 
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
@@ -38,20 +49,28 @@ class OpenAIProvider(LLMProvider):
             self.model = ChatOpenAI(model="gpt-4o", openai_api_key=self.api_key)
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ]
-        response = self.model.invoke(messages)
-        return response.content
+        try:
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt)
+            ]
+            response = self.model.invoke(messages)
+            return response.content
+        except Exception as e:
+            logger.error(f"OpenAI generate failed: {str(e)}")
+            raise e
 
     def stream(self, prompt: str, system_prompt: str = ""):
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ]
-        for chunk in self.model.stream(messages):
-            yield chunk.content
+        try:
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt)
+            ]
+            for chunk in self.model.stream(messages):
+                yield chunk.content
+        except Exception as e:
+            logger.error(f"OpenAI stream failed: {str(e)}")
+            raise e
 
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
@@ -99,21 +118,28 @@ class MistralProvider(LLMProvider):
             self.model = ChatMistralAI(model="mistral-large-latest", mistral_api_key=self.api_key)
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ]
-        response = self.model.invoke(messages)
-        return response.content
+        try:
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt)
+            ]
+            response = self.model.invoke(messages)
+            return response.content
+        except Exception as e:
+            logger.error(f"Mistral generate failed: {str(e)}")
+            raise e
 
     def stream(self, prompt: str, system_prompt: str = ""):
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ]
-        for chunk in self.model.stream(messages):
-            yield chunk.content
+        try:
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt)
+            ]
+            for chunk in self.model.stream(messages):
+                yield chunk.content
+        except Exception as e:
+            logger.error(f"Mistral stream failed: {str(e)}")
+            raise e
 
     def is_available(self) -> bool:
         return bool(self.api_key) and "your_" not in self.api_key and self.api_key != ""
-y and self.api_key != ""
