@@ -1,0 +1,15 @@
+django>=4.2,<5.0
+djangorestframework
+django-cors-headers
+qdrant-client
+langchain
+langchain-anthropic
+langchain-openai
+langchain-google-genai
+langchain-mistralai
+sentence-transformers
+pypdf2
+pdfplumber
+beautifulsoup4
+python-dotenv
+tiktoken
