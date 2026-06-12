@@ -1,5 +1,6 @@
-# Use an official Node runtime as a parent image
-FROM node:20-alpine
+# Use a glibc-based Node image because the lockfile installs Rollup's
+# linux-x64-gnu native package, which is incompatible with Alpine/musl.
+FROM node:20-slim
 
 # Set work directory
 WORKDIR /app

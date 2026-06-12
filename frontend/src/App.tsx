@@ -3,16 +3,19 @@ import axios from 'axios';
 import { 
   Upload, 
   FileText, 
-  Send, 
   Loader2, 
   Database, 
   Sparkles, 
   CheckCircle2, 
   AlertCircle,
   Copy,
+  Edit3,
   ChevronRight,
   FolderOpen,
-  FileCode
+  FileCode,
+  Save,
+  Wand2,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -85,6 +88,13 @@ function App() {
   const [files, setFiles] = useState<File[]>([]);
   const [jobDescription, setJobDescription] = useState<string>('');
   const [generatedCV, setGeneratedCV] = useState<string>('');
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string>('');
+  const [pdfLoading, setPdfLoading] = useState<boolean>(false);
+  const [pdfError, setPdfError] = useState<string>('');
+  const [editableCV, setEditableCV] = useState<string>('');
+  const [isEditingCV, setIsEditingCV] = useState<boolean>(false);
+  const [editInstruction, setEditInstruction] = useState<string>('');
+  const [updatingCV, setUpdatingCV] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [uploadStatus, setUploadStatus] = useState<{ type: string; message: string }>({ type: '', message: '' });
   const [providerStatus, setProviderStatus] = useState<ProviderStatus>({});
@@ -132,6 +142,153 @@ function App() {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  const [downloading, setDownloading] = useState<boolean>(false);
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreviewUrl) {
+        window.URL.revokeObjectURL(pdfPreviewUrl);
+      }
+    };
+  }, [pdfPreviewUrl]);
+
+  const createPDFBlobUrl = async (markdown: string): Promise<string> => {
+    const response = await fetch(`${API_BASE_URL}/download-pdf/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ markdown }),
+    });
+
+    if (!response.ok) {
+      let message = 'Falha ao montar o PDF.';
+      try {
+        const data = await response.json();
+        if (data.error) message = data.error;
+      } catch {
+        // Keep the generic message when the response is not JSON.
+      }
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    return window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+  };
+
+  const refreshPDFPreview = async (markdown: string): Promise<string> => {
+    setPdfLoading(true);
+    setPdfError('');
+    try {
+      const url = await createPDFBlobUrl(markdown);
+      setPdfPreviewUrl(url);
+      return url;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao montar o PDF.';
+      setPdfError(message);
+      throw error;
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!generatedCV) return;
+    setDownloading(true);
+    try {
+      const url = pdfPreviewUrl || (await refreshPDFPreview(generatedCV));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'curriculo.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (error) {
+      setUploadStatus({ type: 'error', message: 'Erro ao baixar o PDF.' });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleStartEdit = () => {
+    setEditableCV(generatedCV);
+    setEditInstruction('');
+    setPdfError('');
+    setIsEditingCV(true);
+  };
+
+  const handleCancelEdit = () => {
+    setEditableCV(generatedCV);
+    setEditInstruction('');
+    setIsEditingCV(false);
+  };
+
+  const handleSaveEdit = async () => {
+    const markdown = editableCV.trim();
+    if (!markdown) return;
+
+    setGeneratedCV(markdown);
+    setIsEditingCV(false);
+    setEditInstruction('');
+
+    try {
+      await refreshPDFPreview(markdown);
+      setUploadStatus({ type: 'success', message: 'CV atualizado no preview.' });
+    } catch {
+      setUploadStatus({ type: 'error', message: 'CV editado, mas o PDF não pôde ser montado.' });
+    }
+  };
+
+  const handleAIUpdateCV = async () => {
+    const markdown = editableCV.trim();
+    const instruction = editInstruction.trim();
+    if (!markdown || !instruction) return;
+
+    setUpdatingCV(true);
+    setPdfError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/update-cv/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          current_cv: markdown,
+          edit_instruction: instruction,
+          job_description: jobDescription,
+        }),
+      });
+
+      if (!response.ok) {
+        let message = 'Falha ao atualizar o CV com IA.';
+        try {
+          const data = await response.json();
+          if (data.error) message = data.error;
+        } catch {
+          // Keep the generic message when the response is not JSON.
+        }
+        throw new Error(message);
+      }
+
+      const data = await response.json();
+      const updatedMarkdown = String(data.markdown || '').trim();
+      if (!updatedMarkdown) throw new Error('A IA retornou um CV vazio.');
+
+      setGeneratedCV(updatedMarkdown);
+      setEditableCV(updatedMarkdown);
+      setIsEditingCV(false);
+      setEditInstruction('');
+      await refreshPDFPreview(updatedMarkdown);
+      setUploadStatus({ type: 'success', message: 'CV atualizado com IA.' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao atualizar o CV.';
+      setUploadStatus({ type: 'error', message });
+    } finally {
+      setUpdatingCV(false);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -194,6 +351,12 @@ function App() {
     if (!jobDescription || loading) return;
     setLoading(true);
     setGeneratedCV('');
+    setEditableCV('');
+    setIsEditingCV(false);
+    setEditInstruction('');
+    setPdfPreviewUrl('');
+    setPdfError('');
+    setPdfLoading(false);
     try {
       const response = await fetch(`${API_BASE_URL}/generate/`, {
         method: 'POST',
@@ -209,27 +372,48 @@ function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let done = false;
+      let generatedMarkdown = '';
+      let sseBuffer = '';
+
+      const processEvent = (event: string) => {
+        const dataLine = event.split('\n').find(line => line.startsWith('data: '));
+        if (!dataLine) return;
+
+        try {
+          const data = JSON.parse(dataLine.slice(6));
+          if (data.chunk) {
+            generatedMarkdown += data.chunk;
+            setGeneratedCV(prev => prev + data.chunk);
+          } else if (data.error) {
+            setUploadStatus({ type: 'error', message: `Erro na IA: ${data.error}` });
+          }
+        } catch (e) {
+          console.error("Erro ao processar chunk:", e);
+        }
+      };
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
         done = doneReading;
-        const chunkValue = decoder.decode(value);
-        
-        // SSE format is data: {...}\n\n
-        const lines = chunkValue.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.chunk) {
-                setGeneratedCV(prev => prev + data.chunk);
-              } else if (data.error) {
-                setUploadStatus({ type: 'error', message: `Erro na IA: ${data.error}` });
-              }
-            } catch (e) {
-              console.error("Erro ao processar chunk:", e);
-            }
-          }
+        sseBuffer += decoder.decode(value, { stream: !doneReading });
+
+        const events = sseBuffer.split('\n\n');
+        sseBuffer = events.pop() || '';
+        for (const event of events) {
+          processEvent(event);
+        }
+      }
+
+      if (sseBuffer.trim()) {
+        processEvent(sseBuffer);
+      }
+
+      if (generatedMarkdown.trim()) {
+        setEditableCV(generatedMarkdown);
+        try {
+          await refreshPDFPreview(generatedMarkdown);
+        } catch {
+          setUploadStatus({ type: 'error', message: 'Currículo gerado, mas o PDF não pôde ser montado.' });
         }
       }
     } catch (error) {
@@ -480,31 +664,135 @@ function App() {
                 className="space-y-6"
               >
                 <Card className="p-0 overflow-hidden border-none shadow-2xl">
-                  <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-6 flex justify-between items-center">
+                  <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-6 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
                     <div className="flex items-center gap-3">
                       <div className="bg-white/10 p-2 rounded-lg">
-                        <CheckCircle2 className="text-indigo-400" size={20} />
+                        {isEditingCV ? <Edit3 className="text-indigo-400" size={20} /> : <CheckCircle2 className="text-indigo-400" size={20} />}
                       </div>
-                      <span className="text-white font-bold">Resultado Final Gerado</span>
+                      <span className="text-white font-bold">{isEditingCV ? 'Editando currículo' : 'Currículo em PDF'}</span>
                     </div>
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => {
-                        navigator.clipboard.writeText(generatedCV);
-                        setUploadStatus({ type: 'success', message: 'Copiado para a área de transferência!' });
-                      }}
-                      className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
-                    >
-                      <Copy size={14} />
-                      Copiar Markdown
-                    </Button>
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      {isEditingCV ? (
+                        <>
+                          <Button
+                            variant="secondary"
+                            onClick={handleCancelEdit}
+                            disabled={pdfLoading || updatingCV}
+                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
+                          >
+                            <X size={14} />
+                            Cancelar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={handleSaveEdit}
+                            loading={pdfLoading}
+                            disabled={!editableCV.trim() || updatingCV}
+                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
+                          >
+                            <Save size={14} />
+                            Salvar PDF
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="secondary"
+                            onClick={handleStartEdit}
+                            disabled={pdfLoading || downloading}
+                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
+                          >
+                            <Edit3 size={14} />
+                            Editar CV
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={handleDownloadPDF}
+                            loading={downloading}
+                            disabled={pdfLoading}
+                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
+                          >
+                            <FileText size={14} />
+                            Baixar PDF
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              navigator.clipboard.writeText(generatedCV);
+                              setUploadStatus({ type: 'success', message: 'Copiado para a área de transferência!' });
+                            }}
+                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
+                          >
+                            <Copy size={14} />
+                            Copiar texto
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div className="p-8 max-h-[800px] overflow-y-auto custom-scrollbar">
-                    <div className="prose prose-slate max-w-none prose-headings:font-bold prose-h1:text-4xl prose-h2:text-2xl prose-p:text-slate-600 prose-li:text-slate-600 prose-strong:text-indigo-600">
-                      <div className="whitespace-pre-wrap font-sans leading-relaxed text-lg">
-                        {generatedCV}
+                  <div className="bg-slate-100 p-4 sm:p-6">
+                    {isEditingCV ? (
+                      <div className="space-y-4">
+                        <textarea
+                          value={editableCV}
+                          onChange={(event) => setEditableCV(event.target.value)}
+                          className="block h-[540px] w-full resize-none rounded-2xl border border-slate-200 bg-white p-5 font-mono text-sm leading-relaxed text-slate-800 outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                          spellCheck={false}
+                        />
+
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <div className="flex flex-col gap-3 lg:flex-row">
+                            <textarea
+                              value={editInstruction}
+                              onChange={(event) => setEditInstruction(event.target.value)}
+                              rows={3}
+                              placeholder="Peça um ajuste para a IA. Ex: reescreva o resumo com foco em Python e remova qualquer frase genérica."
+                              className="min-h-[88px] flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                            />
+                            <Button
+                              variant="primary"
+                              onClick={handleAIUpdateCV}
+                              loading={updatingCV}
+                              disabled={!editableCV.trim() || !editInstruction.trim() || pdfLoading}
+                              className="lg:w-44"
+                            >
+                              <Wand2 size={16} />
+                              Aplicar IA
+                            </Button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ) : pdfLoading ? (
+                      <div className="h-[720px] rounded-2xl border border-slate-200 bg-white flex flex-col items-center justify-center gap-4">
+                        <Loader2 className="animate-spin text-indigo-600" size={32} />
+                        <div className="text-center">
+                          <p className="text-sm font-bold text-slate-700">Montando PDF</p>
+                          <p className="text-xs text-slate-400 mt-1">Preparando o arquivo final.</p>
+                        </div>
+                      </div>
+                    ) : pdfPreviewUrl ? (
+                      <iframe
+                        src={pdfPreviewUrl}
+                        title="Currículo em PDF"
+                        className="block h-[720px] w-full rounded-2xl border border-slate-200 bg-white"
+                      />
+                    ) : (
+                      <div className="h-[720px] rounded-2xl border border-rose-100 bg-rose-50 flex flex-col items-center justify-center gap-4 px-6 text-center">
+                        <AlertCircle className="text-rose-500" size={32} />
+                        <div>
+                          <p className="text-sm font-bold text-rose-700">Não foi possível montar o PDF</p>
+                          <p className="text-xs text-rose-500 mt-1">{pdfError || 'Tente gerar o preview novamente.'}</p>
+                        </div>
+                        <Button
+                          variant="secondary"
+                          onClick={() => refreshPDFPreview(generatedCV)}
+                          loading={pdfLoading}
+                          className="!py-2 !px-4 text-xs"
+                        >
+                          Gerar PDF novamente
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </Card>
                 

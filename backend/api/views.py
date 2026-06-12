@@ -2,12 +2,41 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.parsers import MultiPartParser, FormParser
-from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator
-from .serializers import GenerateSerializer, DocumentSerializer
+from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator, PDFGenerator, BlobStorage
+from ai_services.cv_markdown import CV_OUTPUT_RULES, sanitize_cv_markdown
+from .serializers import GenerateSerializer, DocumentSerializer, UpdateCVSerializer
 from .tasks import process_document_task
 from .models import Document
 import os
 import base64
+from django.http import StreamingHttpResponse, HttpResponse
+import json
+import datetime
+
+class DownloadPDFView(APIView):
+    def post(self, request):
+        md_content = sanitize_cv_markdown(request.data.get('markdown', ''))
+        if not md_content:
+            return Response({"error": "Nenhum conteúdo fornecido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pdf_bytes = PDFGenerator.generate(md_content)
+
+            # Save to Blob Storage (MinIO)
+            try:
+                storage = BlobStorage()
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                file_name = f"cv_{timestamp}.pdf"
+                storage.save_pdf(file_name, pdf_bytes)
+            except Exception as blob_err:
+                # Log error but don't stop the download
+                print(f"Failed to save to blob: {str(blob_err)}")
+
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
+            response['Content-Disposition'] = 'inline; filename="curriculo.pdf"'
+            return response
+        except Exception as e:
+            return Response({"error": f"Erro ao gerar PDF: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ProviderStatusView(APIView):
     def get(self, request):
@@ -45,8 +74,8 @@ class DocumentListView(generics.ListAPIView):
     queryset = Document.objects.all().order_by('-created_at')
     serializer_class = DocumentSerializer
 
-from django.http import StreamingHttpResponse
-import json
+def _collect_llm_response(orchestrator, prompt: str, system_prompt: str) -> str:
+    return "".join(chunk for chunk in orchestrator.stream(prompt, system_prompt) if chunk)
 
 class GenerateView(APIView):
     def post(self, request):
@@ -75,12 +104,14 @@ class GenerateView(APIView):
             return Response({"error": f"Erro ao buscar no banco vetorial: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # 2. Build Prompt
-        system_prompt = """
-        Você é um especialista em recrutamento e seleção. Sua tarefa é gerar um currículo altamente personalizado 
-        com base nas experiências do usuário e na descrição da vaga fornecida.
-        Use apenas as informações fornecidas no contexto do usuário. Se alguma informação for necessária mas não estiver presente, 
-        indique claramente ou foque no que está disponível.
-        Formate o currículo de forma profissional em Markdown.
+        system_prompt = f"""
+        Voce e um especialista em recrutamento e selecao. Sua tarefa e gerar um curriculo altamente personalizado
+        com base nas experiencias do usuario e na descricao da vaga fornecida.
+        Use apenas as informacoes fornecidas no contexto do usuario.
+        Se alguma informacao estiver ausente, omita essa informacao em vez de deixar lacunas ou placeholders.
+        Formate o curriculo de forma profissional em Markdown.
+
+        {CV_OUTPUT_RULES}
         """
         
         prompt = f"""
@@ -93,25 +124,82 @@ class GenerateView(APIView):
         Gere o currículo otimizado para esta vaga.
         """
 
-        # 3. Initial attempt to get the iterator to catch early errors
+        # 3. Generate the complete CV before streaming it, so we can enforce output hygiene.
         try:
-            stream_iterator = orchestrator.stream(prompt, system_prompt)
-            # Try to get the first chunk to ensure the connection to the LLM is actually working
-            # We use a peek-like approach by manually handling the first iteration
-            first_chunk = next(stream_iterator)
+            raw_content = _collect_llm_response(orchestrator, prompt, system_prompt)
+            cv_content = sanitize_cv_markdown(raw_content)
+            if not cv_content:
+                raise Exception("A IA retornou uma resposta vazia.")
         except Exception as e:
             return Response({"error": f"Falha ao iniciar geração com IA: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # 4. Stream with Fallback (continuing from the first chunk)
-        def stream_generator(initial_chunk, iterator):
-            yield f"data: {json.dumps({'chunk': initial_chunk})}\n\n"
-            try:
-                for chunk in iterator:
-                    if chunk:
-                        yield f"data: {json.dumps({'chunk': chunk})}\n\n"
-            except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        # 4. Keep the SSE contract expected by the frontend.
+        def stream_generator():
+            yield f"data: {json.dumps({'chunk': cv_content})}\n\n"
 
-        response = StreamingHttpResponse(stream_generator(first_chunk, stream_iterator), content_type='text/event-stream')
+        response = StreamingHttpResponse(stream_generator(), content_type='text/event-stream')
         response['Cache-Control'] = 'no-cache'
         return response
+
+class UpdateCVView(APIView):
+    def post(self, request):
+        serializer = UpdateCVSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        current_cv = serializer.validated_data['current_cv']
+        edit_instruction = serializer.validated_data['edit_instruction']
+        job_description = serializer.validated_data.get('job_description', '')
+
+        orchestrator = LLMOrchestrator()
+        available_providers = [p for p in orchestrator.providers if p.is_available()]
+        if not available_providers:
+            return Response(
+                {"error": "Nenhum provedor de IA configurado ou disponível. Verifique suas chaves de API."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        context_text = ""
+        try:
+            vector_store = QdrantVectorStore()
+            query = "\n".join([job_description, edit_instruction]).strip()
+            if query:
+                context_fragments = vector_store.search(collection_name="user_context", query=query, limit=8)
+                context_text = "\n---\n".join([fragment.get("text", "") for fragment in context_fragments])
+        except Exception as e:
+            print(f"Failed to load vector context for CV update: {str(e)}")
+
+        system_prompt = f"""
+        Voce e um editor senior de curriculos. Atualize o curriculo atual conforme o pedido do usuario.
+        Preserve fatos, datas, cargos e informacoes ja existentes quando eles nao forem contraditos pelo pedido.
+        Use o contexto recuperado apenas para complementar informacoes reais.
+        Se o pedido exigir informacao que nao existe no curriculo nem no contexto, nao invente.
+        Retorne sempre o curriculo completo atualizado, nao apenas o trecho alterado.
+
+        {CV_OUTPUT_RULES}
+        """
+
+        prompt = f"""
+        Pedido de edicao:
+        {edit_instruction}
+
+        Descricao da vaga original:
+        {job_description}
+
+        Contexto recuperado da base do usuario:
+        {context_text}
+
+        Curriculo atual em Markdown:
+        {current_cv}
+
+        Atualize e retorne o curriculo final completo.
+        """
+
+        try:
+            raw_content = _collect_llm_response(orchestrator, prompt, system_prompt)
+            updated_cv = sanitize_cv_markdown(raw_content)
+            if not updated_cv:
+                raise Exception("A IA retornou uma resposta vazia.")
+            return Response({"markdown": updated_cv}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": f"Falha ao atualizar CV com IA: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
