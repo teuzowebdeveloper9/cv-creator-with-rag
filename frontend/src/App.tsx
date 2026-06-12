@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   Upload, 
@@ -15,22 +15,31 @@ import {
   FileCode,
   Save,
   Wand2,
-  X
+  X,
+  History,
+  Download,
+  LayoutDashboard,
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
+// --- Improved Shared Components ---
+
 interface CardProps {
   children: React.ReactNode;
   className?: string;
+  hoverable?: boolean;
 }
 
-const Card: React.FC<CardProps> = ({ children, className = "" }) => (
+const Card: React.FC<CardProps> = ({ children, className = "", hoverable = false }) => (
   <motion.div 
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
-    className={`bg-white/80 backdrop-blur-xl border border-white/20 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-3xl p-6 ${className}`}
+    whileHover={hoverable ? { y: -4, shadow: "0 12px 40px rgba(0,0,0,0.08)" } : {}}
+    className={`glass-card rounded-[2.5rem] p-8 transition-shadow duration-300 ${className}`}
   >
     {children}
   </motion.div>
@@ -41,27 +50,38 @@ interface ButtonProps {
   onClick?: () => void;
   disabled?: boolean;
   loading?: boolean;
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "success";
   className?: string;
+  size?: "sm" | "md" | "lg";
 }
 
-const Button: React.FC<ButtonProps> = ({ children, onClick, disabled, loading, variant = "primary", className = "" }) => {
+const Button: React.FC<ButtonProps> = ({ children, onClick, disabled, loading, variant = "primary", className = "", size = "md" }) => {
   const variants = {
-    primary: "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-indigo-200 hover:shadow-indigo-300",
-    secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-sm",
-    ghost: "bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+    primary: "bg-indigo-600 text-white shadow-indigo-200 hover:bg-indigo-700 hover:shadow-indigo-300",
+    secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-sm",
+    ghost: "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+    danger: "bg-rose-50 text-rose-600 hover:bg-rose-100",
+    success: "bg-emerald-600 text-white shadow-emerald-200 hover:bg-emerald-700"
+  };
+
+  const sizes = {
+    sm: "px-4 py-2 text-xs rounded-xl gap-1.5",
+    md: "px-6 py-3.5 text-sm rounded-2xl gap-2",
+    lg: "px-8 py-4 text-base rounded-[1.25rem] gap-2.5"
   };
 
   return (
     <button
       onClick={onClick}
       disabled={disabled || loading}
-      className={`relative flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-semibold transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:active:scale-100 shadow-lg ${variants[variant]} ${className}`}
+      className={`interactive-button flex items-center justify-center font-bold tracking-tight shadow-md ${variants[variant]} ${sizes[size]} ${className}`}
     >
-      {loading ? <Loader2 className="animate-spin" size={20} /> : children}
+      {loading ? <Loader2 className="animate-spin" size={size === 'sm' ? 14 : 18} /> : children}
     </button>
   );
 };
+
+// --- Interfaces ---
 
 interface UploadQueue {
   active: boolean;
@@ -84,6 +104,8 @@ interface DocumentRecord {
   created_at: string;
 }
 
+// --- Main App Component ---
+
 function App() {
   const [files, setFiles] = useState<File[]>([]);
   const [jobDescription, setJobDescription] = useState<string>('');
@@ -99,6 +121,7 @@ function App() {
   const [uploadStatus, setUploadStatus] = useState<{ type: string; message: string }>({ type: '', message: '' });
   const [providerStatus, setProviderStatus] = useState<ProviderStatus>({});
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  const [downloading, setDownloading] = useState<boolean>(false);
   
   const [uploadQueue, setUploadQueue] = useState<UploadQueue>({
     active: false,
@@ -108,6 +131,8 @@ function App() {
     error: 0,
     logs: []
   });
+
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const addLog = (msg: string) => {
     setUploadQueue(prev => ({
@@ -143,8 +168,6 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const [downloading, setDownloading] = useState<boolean>(false);
-
   useEffect(() => {
     return () => {
       if (pdfPreviewUrl) {
@@ -167,9 +190,7 @@ function App() {
       try {
         const data = await response.json();
         if (data.error) message = data.error;
-      } catch {
-        // Keep the generic message when the response is not JSON.
-      }
+      } catch { }
       throw new Error(message);
     }
 
@@ -227,11 +248,9 @@ function App() {
   const handleSaveEdit = async () => {
     const markdown = editableCV.trim();
     if (!markdown) return;
-
     setGeneratedCV(markdown);
     setIsEditingCV(false);
     setEditInstruction('');
-
     try {
       await refreshPDFPreview(markdown);
       setUploadStatus({ type: 'success', message: 'CV atualizado no preview.' });
@@ -244,38 +263,29 @@ function App() {
     const markdown = editableCV.trim();
     const instruction = editInstruction.trim();
     if (!markdown || !instruction) return;
-
     setUpdatingCV(true);
     setPdfError('');
-
     try {
       const response = await fetch(`${API_BASE_URL}/update-cv/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           current_cv: markdown,
           edit_instruction: instruction,
           job_description: jobDescription,
         }),
       });
-
       if (!response.ok) {
         let message = 'Falha ao atualizar o CV com IA.';
         try {
           const data = await response.json();
           if (data.error) message = data.error;
-        } catch {
-          // Keep the generic message when the response is not JSON.
-        }
+        } catch { }
         throw new Error(message);
       }
-
       const data = await response.json();
       const updatedMarkdown = String(data.markdown || '').trim();
       if (!updatedMarkdown) throw new Error('A IA retornou um CV vazio.');
-
       setGeneratedCV(updatedMarkdown);
       setEditableCV(updatedMarkdown);
       setIsEditingCV(false);
@@ -300,7 +310,6 @@ function App() {
 
   const handleUpload = async () => {
     if (files.length === 0) return;
-    
     setUploadQueue({
       active: true,
       total: files.length,
@@ -309,35 +318,27 @@ function App() {
       error: 0,
       logs: [`Iniciando processamento de ${files.length} arquivos...`]
     });
-
     setLoading(true);
-    
     let successCount = 0;
     let errorCount = 0;
-
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       setUploadQueue(prev => ({ ...prev, current: i + 1 }));
       addLog(`Enviando: ${file.name}`);
-
       const formData = new FormData();
       formData.append('files', file);
-
       try {
         await axios.post(`${API_BASE_URL}/upload/`, formData);
         successCount++;
         setUploadQueue(prev => ({ ...prev, success: successCount }));
       } catch (error) {
-        console.error(`Erro no arquivo ${file.name}:`, error);
         errorCount++;
         setUploadQueue(prev => ({ ...prev, error: errorCount }));
         addLog(`Erro: ${file.name}`);
       }
     }
-
     setLoading(false);
     setFiles([]);
-    
     setTimeout(() => {
       setUploadStatus({ 
         type: successCount > 0 ? 'success' : 'error', 
@@ -360,25 +361,19 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/generate/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job_description: jobDescription }),
       });
-
       if (!response.ok) throw new Error('Falha na geração');
       if (!response.body) throw new Error('Corpo da resposta vazio');
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let done = false;
       let generatedMarkdown = '';
       let sseBuffer = '';
-
       const processEvent = (event: string) => {
         const dataLine = event.split('\n').find(line => line.startsWith('data: '));
         if (!dataLine) return;
-
         try {
           const data = JSON.parse(dataLine.slice(6));
           if (data.chunk) {
@@ -387,27 +382,19 @@ function App() {
           } else if (data.error) {
             setUploadStatus({ type: 'error', message: `Erro na IA: ${data.error}` });
           }
-        } catch (e) {
-          console.error("Erro ao processar chunk:", e);
-        }
+        } catch (e) { }
       };
-
       while (!done) {
         const { value, done: doneReading } = await reader.read();
         done = doneReading;
         sseBuffer += decoder.decode(value, { stream: !doneReading });
-
         const events = sseBuffer.split('\n\n');
         sseBuffer = events.pop() || '';
         for (const event of events) {
           processEvent(event);
         }
       }
-
-      if (sseBuffer.trim()) {
-        processEvent(sseBuffer);
-      }
-
+      if (sseBuffer.trim()) { processEvent(sseBuffer); }
       if (generatedMarkdown.trim()) {
         setEditableCV(generatedMarkdown);
         try {
@@ -424,36 +411,41 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-100/40 via-slate-50 to-white text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="min-h-screen selection:bg-indigo-100 selection:text-indigo-900">
       
-      <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none -z-10">
-        <div className="absolute -top-24 -left-24 w-96 h-96 bg-indigo-200/30 rounded-full blur-3xl"></div>
-        <div className="absolute top-1/2 -right-24 w-72 h-72 bg-violet-200/30 rounded-full blur-3xl"></div>
+      {/* Dynamic Background */}
+      <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none -z-10 bg-slate-50">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-200/40 rounded-full blur-[120px] animate-float"></div>
+        <div className="absolute bottom-[10%] right-[-5%] w-[35%] h-[35%] bg-violet-200/30 rounded-full blur-[100px] animate-float-delayed"></div>
+        <div className="absolute top-[30%] left-[60%] w-[20%] h-[20%] bg-blue-100/40 rounded-full blur-[80px]"></div>
       </div>
 
-      <header className="max-w-7xl mx-auto px-6 py-8 flex justify-between items-center">
+      <header className="max-w-[1440px] mx-auto px-8 py-10 flex justify-between items-center">
         <motion.div 
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-6"
+          className="flex items-center gap-8"
         >
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2.5 rounded-2xl shadow-indigo-200 shadow-xl">
-              <Sparkles className="text-white" size={24} />
+          <div className="flex items-center gap-4">
+            <div className="bg-indigo-600 p-3.5 rounded-3xl shadow-[0_8px_30px_rgba(79,70,229,0.3)]">
+              <Sparkles className="text-white" size={28} />
             </div>
             <div>
-              <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
-                RAG CV Creator
+              <h1 className="text-3xl font-black tracking-tighter gradient-text">
+                RAG CV <span className="text-slate-900">Creator</span>
               </h1>
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-widest">AI-Powered Excellence</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <div className="h-1 w-12 bg-indigo-600 rounded-full"></div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Next-Gen Resume Engine</p>
+              </div>
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-3 pl-6 border-l border-slate-200">
+          <div className="hidden lg:flex items-center gap-4 pl-8 border-l border-slate-200">
             {Object.entries(providerStatus).map(([name, available]) => (
-              <div key={name} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-slate-100 shadow-sm">
-                <div className={`w-1.5 h-1.5 rounded-full ${available ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                <span className={`text-[10px] font-bold uppercase tracking-tight ${available ? 'text-slate-700' : 'text-slate-400'}`}>
+              <div key={name} className="flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-white/50 border border-white/60 shadow-sm backdrop-blur-sm">
+                <div className={`w-2 h-2 rounded-full ${available ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse' : 'bg-slate-300'}`}></div>
+                <span className={`text-[10px] font-black uppercase tracking-wider ${available ? 'text-slate-700' : 'text-slate-400'}`}>
                   {name}
                 </span>
               </div>
@@ -464,110 +456,105 @@ function App() {
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
+          className="flex items-center gap-4"
         >
           <a 
             href="http://localhost:6333/dashboard" 
             target="_blank" 
             rel="noopener noreferrer"
-            className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 transition-colors font-medium text-sm bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-100"
+            className="hidden sm:flex items-center gap-2 text-slate-600 hover:text-indigo-600 transition-all font-bold text-xs bg-white/50 px-5 py-3 rounded-2xl shadow-sm border border-white/60 backdrop-blur-sm group"
           >
-            <Database size={16} />
+            <Database size={14} className="group-hover:rotate-12 transition-transform" />
             <span>Qdrant Dashboard</span>
-            <ChevronRight size={14} />
+            <ExternalLink size={12} className="opacity-40" />
           </a>
         </motion.div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 pb-24 grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <main className="max-w-[1440px] mx-auto px-8 pb-32 grid grid-cols-1 lg:grid-cols-12 gap-10">
         
-        <div className="lg:col-span-4 space-y-6">
+        {/* Left Sidebar */}
+        <div className="lg:col-span-4 space-y-8">
           
-          <Card className="relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-5">
-              <Upload size={80} />
+          <Card className="relative group">
+            <div className="absolute -top-10 -right-10 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Upload size={160} />
             </div>
             
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-                <FolderOpen size={20} />
+            <div className="flex items-center gap-4 mb-8">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-inner">
+                <FolderOpen size={24} />
               </div>
-              <h2 className="text-xl font-bold">Base de Conhecimento</h2>
+              <div>
+                <h2 className="text-xl font-black text-slate-800">Knowledge Base</h2>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Training Data</p>
+              </div>
             </div>
 
-            <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-              Faça upload dos seus currículos antigos, portfólios ou documentos de carreira para treinar a IA.
+            <p className="text-sm font-medium text-slate-500 mb-8 leading-relaxed">
+              Upload your career history. The AI will learn your unique style, achievements, and impact.
             </p>
 
             <div className="space-y-4">
-              <label className="group relative block cursor-pointer">
-                <input 
-                  type="file" 
-                  multiple 
-                  accept=".pdf,.html"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                <div className="w-full py-8 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-2 group-hover:border-indigo-400 group-hover:bg-indigo-50/30 transition-all duration-300">
-                  <Upload className="text-slate-400 group-hover:text-indigo-500" size={24} />
-                  <span className="text-sm font-medium text-slate-600">Selecionar Arquivos</span>
-                  <span className="text-xs text-slate-400 font-normal">PDF ou HTML suportados</span>
+              <label className="group/drop relative block cursor-pointer">
+                <input type="file" multiple accept=".pdf,.html" onChange={handleFileChange} className="hidden" />
+                <div className="w-full py-12 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-3 group-hover/drop:border-indigo-400 group-hover/drop:bg-indigo-50/50 transition-all duration-500 overflow-hidden relative">
+                  <div className="absolute inset-0 bg-indigo-600/5 translate-y-full group-hover/drop:translate-y-0 transition-transform duration-500"></div>
+                  <Upload className="text-slate-300 group-hover/drop:text-indigo-500 group-hover/drop:scale-110 transition-all" size={32} />
+                  <div className="text-center relative z-10">
+                    <span className="block text-sm font-black text-slate-700">Drop files here</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">PDF or HTML preferred</span>
+                  </div>
                 </div>
               </label>
 
-              <label className="group relative block cursor-pointer">
-                <input 
-                  type="file" 
-                  // @ts-ignore
-                  webkitdirectory="true"
-                  // @ts-ignore
-                  directory=""
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                <div className="w-full py-4 border border-slate-200 rounded-2xl flex items-center justify-center gap-2 hover:border-indigo-200 hover:bg-slate-50 transition-all duration-300">
+              <label className="group/dir relative block cursor-pointer">
+                <input type="file" // @ts-ignore
+                  webkitdirectory="true" // @ts-ignore
+                  directory="" onChange={handleFileChange} className="hidden" />
+                <div className="w-full py-4 px-6 border border-slate-200 rounded-2xl flex items-center justify-center gap-3 hover:border-indigo-200 hover:bg-slate-50 transition-all duration-300">
                   <FileCode className="text-slate-400" size={18} />
-                  <span className="text-sm font-medium text-slate-600">Ou Selecionar Pasta Completa</span>
+                  <span className="text-xs font-black text-slate-600 uppercase tracking-tight">Select Complete Folder</span>
                 </div>
               </label>
 
               <AnimatePresence>
                 {files.length > 0 && (
                   <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="bg-slate-50 rounded-xl p-3 flex items-center justify-between"
+                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-indigo-600 text-white rounded-[1.25rem] p-4 flex items-center justify-between shadow-lg shadow-indigo-200"
                   >
-                    <span className="text-xs font-semibold text-slate-500">{files.length} arquivos prontos</span>
-                    <button onClick={() => setFiles([])} className="text-xs text-rose-500 font-bold uppercase">Limpar</button>
+                    <div className="flex items-center gap-3">
+                      <div className="bg-white/20 p-2 rounded-lg">
+                        <FileText size={16} />
+                      </div>
+                      <span className="text-xs font-black">{files.length} Files Ready</span>
+                    </div>
+                    <button onClick={() => setFiles([])} className="p-1 hover:bg-white/20 rounded-md transition-colors">
+                      <X size={16} />
+                    </button>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              <Button 
-                onClick={handleUpload}
-                disabled={files.length === 0}
-                loading={loading && uploadQueue.active}
-                className="w-full"
-              >
-                Indexar Experiências
+              <Button onClick={handleUpload} disabled={files.length === 0} loading={loading && uploadQueue.active} className="w-full" size="lg">
+                Index Experiences
               </Button>
 
               <AnimatePresence>
                 {uploadStatus.message && (
                   <motion.div 
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className={`flex items-center gap-3 p-4 rounded-2xl border ${
+                    initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                    className={`flex items-center gap-3 p-5 rounded-[1.5rem] border-2 ${
                       uploadStatus.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 
                       uploadStatus.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-700' :
                       'bg-indigo-50 border-indigo-100 text-indigo-700'
                     }`}
                   >
-                    {uploadStatus.type === 'success' ? <CheckCircle2 size={18} /> : 
-                     uploadStatus.type === 'error' ? <AlertCircle size={18} /> : 
-                     <Loader2 className="animate-spin" size={18} />}
-                    <span className="text-sm font-medium">{uploadStatus.message}</span>
+                    {uploadStatus.type === 'success' ? <CheckCircle2 size={20} className="shrink-0" /> : 
+                     uploadStatus.type === 'error' ? <AlertCircle size={20} className="shrink-0" /> : 
+                     <Loader2 className="animate-spin shrink-0" size={20} />}
+                    <span className="text-xs font-black leading-tight uppercase tracking-tight">{uploadStatus.message}</span>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -575,62 +562,79 @@ function App() {
           </Card>
 
           <Card>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600">
-                <FileText size={20} />
+            <div className="flex items-center gap-4 mb-8">
+              <div className="w-14 h-14 rounded-2xl bg-violet-50 flex items-center justify-center text-violet-600 shadow-inner">
+                <LayoutDashboard size={24} />
               </div>
-              <h2 className="text-xl font-bold">Oportunidade</h2>
+              <div>
+                <h2 className="text-xl font-black text-slate-800">Target Role</h2>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Optimization Goal</p>
+              </div>
             </div>
 
-            <p className="text-sm text-slate-500 mb-4">
-              Cole a descrição da vaga abaixo. O RAG buscará em sua base os fatos mais relevantes.
+            <p className="text-sm font-medium text-slate-500 mb-6">
+              Paste the job description. RAG will extract the key competencies required.
             </p>
 
-            <textarea 
-              rows={6}
-              value={jobDescription}
-              onChange={(e) => setJobDescription(e.target.value)}
-              placeholder="Ex: Desenvolvedor Full Stack Sênior..."
-              className="w-full p-4 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none resize-none bg-slate-50/50 text-sm"
-            ></textarea>
+            <div className="relative group">
+              <textarea 
+                rows={8} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)}
+                placeholder="Ex: Senior Full Stack Developer - Focus on Scalability..."
+                className="w-full p-6 border-2 border-slate-100 rounded-3xl focus:ring-8 focus:ring-indigo-500/5 focus:border-indigo-500 transition-all outline-none resize-none bg-slate-50/50 text-sm font-medium text-slate-700 placeholder:text-slate-300 placeholder:font-bold"
+              ></textarea>
+              <div className="absolute bottom-4 right-4 text-[10px] font-black text-slate-300 uppercase">Input Required</div>
+            </div>
 
-            <Button 
-              onClick={handleGenerate}
-              disabled={!jobDescription}
-              loading={loading && !uploadQueue.active}
-              className="w-full mt-4"
-            >
-              Gerar Currículo Estratégico
+            <Button onClick={handleGenerate} disabled={!jobDescription} loading={loading && !uploadQueue.active} className="w-full mt-6" size="lg">
+              <Sparkles size={18} />
+              Craft Strategic Resume
             </Button>
           </Card>
 
-          <Card className="max-h-[400px] overflow-hidden flex flex-col">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-600">
-                <Database size={20} />
+          <Card className="max-h-[480px] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-600">
+                  <History size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-800">History</h2>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Indexed Items</p>
+                </div>
               </div>
-              <h2 className="text-xl font-bold">Base Local</h2>
+              <div className="bg-slate-100 px-3 py-1 rounded-full text-[10px] font-black text-slate-500">{documents.length}</div>
             </div>
             
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-2">
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
               {documents.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-8">Nenhum documento indexado ainda.</p>
+                <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-30">
+                  <Database size={40} />
+                  <p className="text-[10px] font-black uppercase tracking-widest">Empty Index</p>
+                </div>
               ) : (
                 documents.map(doc => (
-                  <div key={doc.id} className="p-3 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-slate-700 truncate max-w-[150px]">{doc.name}</span>
-                      <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                        doc.status === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700' :
-                        doc.status === 'FAILED' ? 'bg-rose-100 text-rose-700' :
-                        'bg-amber-100 text-amber-700'
+                  <div key={doc.id} className="p-4 rounded-2xl border border-slate-100 bg-white hover:border-indigo-100 hover:shadow-sm transition-all group">
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <span className="text-xs font-black text-slate-700 truncate">{doc.name}</span>
+                      <div className={`shrink-0 px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider ${
+                        doc.status === 'SUCCESS' ? 'bg-emerald-50 text-emerald-600' :
+                        doc.status === 'FAILED' ? 'bg-rose-50 text-rose-600' :
+                        'bg-amber-50 text-amber-600'
                       }`}>
                         {doc.status}
                       </div>
                     </div>
-                    {doc.error_message && (
-                      <p className="text-[10px] text-rose-500 leading-tight font-medium">{doc.error_message}</p>
-                    )}
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] text-slate-400 font-bold">{new Date(doc.created_at).toLocaleDateString()}</p>
+                      {doc.error_message && (
+                        <div className="group/err relative">
+                          <Info size={12} className="text-rose-400" />
+                          <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-900 text-white text-[9px] rounded-lg opacity-0 group-hover/err:opacity-100 transition-opacity pointer-events-none z-50">
+                            {doc.error_message}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
@@ -638,158 +642,130 @@ function App() {
           </Card>
         </div>
 
+        {/* Right Content Area */}
         <div className="lg:col-span-8">
           <AnimatePresence mode="wait">
             {!generatedCV ? (
               <motion.div 
-                key="empty"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="h-full min-h-[500px] border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center p-12 text-center"
+                key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="h-full min-h-[600px] border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center p-16 text-center bg-white/30 backdrop-blur-sm"
               >
-                <div className="w-20 h-20 bg-indigo-50 rounded-3xl flex items-center justify-center text-indigo-200 mb-6">
-                  <FileText size={40} />
+                <div className="w-24 h-24 bg-white rounded-[2.5rem] shadow-xl shadow-indigo-100 flex items-center justify-center text-indigo-100 mb-10 group-hover:scale-110 transition-transform">
+                  <FileText size={48} />
                 </div>
-                <h3 className="text-2xl font-bold text-slate-400 mb-2">Seu Currículo aparecerá aqui</h3>
-                <p className="text-slate-400 max-w-sm leading-relaxed">
-                  Configure sua base de conhecimento e forneça uma descrição de vaga para começar a mágica da IA.
+                <h3 className="text-3xl font-black text-slate-300 mb-4 tracking-tight">Your Resume Awaits</h3>
+                <p className="text-slate-400 max-w-sm leading-relaxed font-medium">
+                  Once generated, your strategic resume will be displayed here in high-fidelity PDF format.
                 </p>
+                <div className="mt-12 flex items-center gap-4">
+                  <div className="flex -space-x-3">
+                    {[1, 2, 3].map(i => <div key={i} className="w-10 h-10 rounded-full bg-slate-50 border-4 border-white"></div>)}
+                  </div>
+                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Join 500+ professionals</span>
+                </div>
               </motion.div>
             ) : (
-              <motion.div 
-                key="result"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="space-y-6"
-              >
-                <Card className="p-0 overflow-hidden border-none shadow-2xl">
-                  <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-6 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-white/10 p-2 rounded-lg">
-                        {isEditingCV ? <Edit3 className="text-indigo-400" size={20} /> : <CheckCircle2 className="text-indigo-400" size={20} />}
+              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
+                <Card className="p-0 overflow-hidden border-none shadow-[0_32px_80px_rgba(0,0,0,0.08)] bg-white">
+                  <div className="bg-slate-900 px-8 py-6 flex flex-col gap-6 lg:flex-row lg:justify-between lg:items-center">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-white/10 p-3 rounded-2xl">
+                        {isEditingCV ? <Edit3 className="text-indigo-400" size={24} /> : <CheckCircle2 className="text-emerald-400" size={24} />}
                       </div>
-                      <span className="text-white font-bold">{isEditingCV ? 'Editando currículo' : 'Currículo em PDF'}</span>
+                      <div>
+                        <span className="text-white text-lg font-black block leading-none">
+                          {isEditingCV ? 'Refining Content' : 'Strategic Output'}
+                        </span>
+                        <span className="text-indigo-400/60 text-[10px] font-black uppercase tracking-[0.2em]">Ready for Submission</span>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                    
+                    <div className="flex flex-wrap gap-3">
                       {isEditingCV ? (
                         <>
-                          <Button
-                            variant="secondary"
-                            onClick={handleCancelEdit}
-                            disabled={pdfLoading || updatingCV}
-                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
-                          >
-                            <X size={14} />
-                            Cancelar
+                          <Button variant="ghost" onClick={handleCancelEdit} disabled={pdfLoading || updatingCV} className="!bg-white/5 !text-white hover:!bg-white/10" size="sm">
+                            <X size={14} /> Cancel
                           </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={handleSaveEdit}
-                            loading={pdfLoading}
-                            disabled={!editableCV.trim() || updatingCV}
-                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
-                          >
-                            <Save size={14} />
-                            Salvar PDF
+                          <Button variant="success" onClick={handleSaveEdit} loading={pdfLoading} disabled={!editableCV.trim() || updatingCV} size="sm">
+                            <Save size={14} /> Commit Changes
                           </Button>
                         </>
                       ) : (
                         <>
-                          <Button
-                            variant="secondary"
-                            onClick={handleStartEdit}
-                            disabled={pdfLoading || downloading}
-                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
-                          >
-                            <Edit3 size={14} />
-                            Editar CV
+                          <Button variant="secondary" onClick={handleStartEdit} disabled={pdfLoading || downloading} className="!bg-white/5 !text-white !border-white/10 hover:!bg-white/10" size="sm">
+                            <Edit3 size={14} /> Edit Source
                           </Button>
-                          <Button
-                            variant="secondary"
-                            onClick={handleDownloadPDF}
-                            loading={downloading}
-                            disabled={pdfLoading}
-                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
-                          >
-                            <FileText size={14} />
-                            Baixar PDF
+                          <Button variant="primary" onClick={handleDownloadPDF} loading={downloading} disabled={pdfLoading} size="sm">
+                            <Download size={14} /> Get PDF
                           </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
+                          <Button variant="ghost" onClick={() => {
                               navigator.clipboard.writeText(generatedCV);
-                              setUploadStatus({ type: 'success', message: 'Copiado para a área de transferência!' });
-                            }}
-                            className="!py-2 !px-4 text-xs bg-white/10 text-white hover:bg-white/20 border-none"
-                          >
-                            <Copy size={14} />
-                            Copiar texto
+                              setUploadStatus({ type: 'success', message: 'Content Copied!' });
+                            }} className="!bg-white/5 !text-white hover:!bg-white/10" size="sm">
+                            <Copy size={14} /> Copy
                           </Button>
                         </>
                       )}
                     </div>
                   </div>
-                  <div className="bg-slate-100 p-4 sm:p-6">
-                    {isEditingCV ? (
-                      <div className="space-y-4">
-                        <textarea
-                          value={editableCV}
-                          onChange={(event) => setEditableCV(event.target.value)}
-                          className="block h-[540px] w-full resize-none rounded-2xl border border-slate-200 bg-white p-5 font-mono text-sm leading-relaxed text-slate-800 outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
-                          spellCheck={false}
-                        />
 
-                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                          <div className="flex flex-col gap-3 lg:flex-row">
-                            <textarea
-                              value={editInstruction}
-                              onChange={(event) => setEditInstruction(event.target.value)}
-                              rows={3}
-                              placeholder="Peça um ajuste para a IA. Ex: reescreva o resumo com foco em Python e remova qualquer frase genérica."
-                              className="min-h-[88px] flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
-                            />
-                            <Button
-                              variant="primary"
-                              onClick={handleAIUpdateCV}
-                              loading={updatingCV}
-                              disabled={!editableCV.trim() || !editInstruction.trim() || pdfLoading}
-                              className="lg:w-44"
-                            >
-                              <Wand2 size={16} />
-                              Aplicar IA
-                            </Button>
+                  <div className="bg-slate-100 p-8">
+                    {isEditingCV ? (
+                      <div className="space-y-6">
+                        <div className="relative group">
+                          <textarea
+                            value={editableCV} onChange={(event) => setEditableCV(event.target.value)}
+                            className="block h-[600px] w-full resize-none rounded-[2rem] border-2 border-slate-200 bg-white p-8 font-mono text-xs leading-relaxed text-slate-800 outline-none transition-all focus:border-indigo-500 shadow-inner"
+                            spellCheck={false}
+                          />
+                          <div className="absolute top-4 right-4 bg-slate-50 px-3 py-1 rounded-full text-[9px] font-black text-slate-400 uppercase">Markdown Editor</div>
+                        </div>
+
+                        <div className="rounded-[2.5rem] border-2 border-indigo-100 bg-indigo-50/30 p-8">
+                          <div className="flex flex-col gap-6 lg:flex-row">
+                            <div className="flex-1 space-y-2">
+                              <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest pl-1">AI Instruction</label>
+                              <textarea
+                                value={editInstruction} onChange={(event) => setEditInstruction(event.target.value)}
+                                rows={3} placeholder="Tell the AI what to change... e.g., 'Make the experience section more action-oriented'."
+                                className="w-full resize-none rounded-2xl border-2 border-white bg-white/80 p-5 text-sm font-medium outline-none transition-all focus:border-indigo-500 shadow-sm"
+                              />
+                            </div>
+                            <div className="lg:w-56 flex flex-col justify-end">
+                              <Button variant="primary" onClick={handleAIUpdateCV} loading={updatingCV} disabled={!editableCV.trim() || !editInstruction.trim() || pdfLoading} className="w-full shadow-indigo-200">
+                                <Wand2 size={18} />
+                                Apply AI Magic
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>
                     ) : pdfLoading ? (
-                      <div className="h-[720px] rounded-2xl border border-slate-200 bg-white flex flex-col items-center justify-center gap-4">
-                        <Loader2 className="animate-spin text-indigo-600" size={32} />
+                      <div className="h-[800px] rounded-[2rem] border-2 border-slate-200 bg-white flex flex-col items-center justify-center gap-6">
+                        <div className="relative">
+                          <div className="w-20 h-20 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin"></div>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <FileText className="text-indigo-600" size={24} />
+                          </div>
+                        </div>
                         <div className="text-center">
-                          <p className="text-sm font-bold text-slate-700">Montando PDF</p>
-                          <p className="text-xs text-slate-400 mt-1">Preparando o arquivo final.</p>
+                          <p className="text-lg font-black text-slate-800">Rendering high-fidelity PDF</p>
+                          <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Polishing layout and fonts...</p>
                         </div>
                       </div>
                     ) : pdfPreviewUrl ? (
-                      <iframe
-                        src={pdfPreviewUrl}
-                        title="Currículo em PDF"
-                        className="block h-[720px] w-full rounded-2xl border border-slate-200 bg-white"
-                      />
+                      <iframe src={pdfPreviewUrl} title="Resume PDF" className="block h-[840px] w-full rounded-[2rem] border-2 border-slate-200 bg-white shadow-2xl" />
                     ) : (
-                      <div className="h-[720px] rounded-2xl border border-rose-100 bg-rose-50 flex flex-col items-center justify-center gap-4 px-6 text-center">
-                        <AlertCircle className="text-rose-500" size={32} />
-                        <div>
-                          <p className="text-sm font-bold text-rose-700">Não foi possível montar o PDF</p>
-                          <p className="text-xs text-rose-500 mt-1">{pdfError || 'Tente gerar o preview novamente.'}</p>
+                      <div className="h-[800px] rounded-[2rem] border-2 border-rose-100 bg-rose-50 flex flex-col items-center justify-center gap-6 px-12 text-center">
+                        <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center text-rose-500">
+                          <AlertCircle size={40} />
                         </div>
-                        <Button
-                          variant="secondary"
-                          onClick={() => refreshPDFPreview(generatedCV)}
-                          loading={pdfLoading}
-                          className="!py-2 !px-4 text-xs"
-                        >
-                          Gerar PDF novamente
+                        <div>
+                          <p className="text-xl font-black text-rose-800">Preview Generation Failed</p>
+                          <p className="text-sm font-medium text-rose-500 mt-2">{pdfError || 'The PDF engine encountered an unexpected error.'}</p>
+                        </div>
+                        <Button variant="secondary" onClick={() => refreshPDFPreview(generatedCV)} loading={pdfLoading} className="!border-rose-200 !text-rose-700 hover:!bg-rose-100">
+                          Retry Rendering
                         </Button>
                       </div>
                     )}
@@ -797,10 +773,12 @@ function App() {
                 </Card>
                 
                 <div className="flex justify-center">
-                  <p className="text-xs text-slate-400 flex items-center gap-1">
-                    <AlertCircle size={12} />
-                    Sempre revise os fatos gerados pela IA antes de enviar para uma vaga.
-                  </p>
+                  <div className="flex items-center gap-3 px-6 py-3 bg-white/50 rounded-full border border-white shadow-sm backdrop-blur-sm">
+                    <AlertCircle size={14} className="text-indigo-400" />
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Final quality control is advised before official submission.
+                    </p>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -808,75 +786,49 @@ function App() {
         </div>
       </main>
 
+      {/* Floating Status Bar */}
       <AnimatePresence>
         {uploadQueue.active && (
-          <motion.div
-            initial={{ opacity: 0, y: 100, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 100, scale: 0.9 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 group"
-          >
-            <div className="bg-slate-900/90 backdrop-blur-2xl border border-white/10 rounded-3xl p-1 shadow-2xl transition-all duration-500 group-hover:p-6 w-16 h-16 group-hover:w-96 group-hover:h-auto overflow-hidden">
-              
-              <div className="absolute inset-0 flex items-center justify-center group-hover:hidden">
-                <div className="relative">
-                  <Loader2 className="animate-spin text-indigo-400" size={32} />
-                  <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white">
-                    {Math.round((uploadQueue.current / uploadQueue.total) * 100)}%
-                  </span>
+          <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 100 }} className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50">
+            <div className="glass-card-dark rounded-[2.5rem] p-8 shadow-[0_40px_100px_rgba(0,0,0,0.3)] w-[480px]">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-white font-black text-xl tracking-tight flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-indigo-500 animate-pulse shadow-[0_0_12px_rgba(79,70,229,0.8)]"></div>
+                    Engine Ingesting...
+                  </h3>
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mt-1">
+                    Progress: {uploadQueue.current} / {uploadQueue.total} Objects
+                  </p>
+                </div>
+                <div className="text-indigo-400 font-black text-4xl italic">
+                  {Math.round((uploadQueue.current / uploadQueue.total) * 100)}%
                 </div>
               </div>
 
-              <div className="hidden group-hover:block space-y-4">
-                <div className="flex justify-between items-end">
-                  <div>
-                    <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
-                      Processando Contexto
-                    </h3>
-                    <p className="text-slate-400 text-xs">
-                      {uploadQueue.current} de {uploadQueue.total} arquivos finalizados
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-indigo-400 font-black text-2xl">
-                      {Math.round((uploadQueue.current / uploadQueue.total) * 100)}%
-                    </span>
-                  </div>
-                </div>
+              <div className="h-4 w-full bg-white/5 rounded-full overflow-hidden mb-6 p-1">
+                <motion.div initial={{ width: 0 }} animate={{ width: `${(uploadQueue.current / uploadQueue.total) * 100}%` }}
+                  className="h-full bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 bg-[length:200%_100%] rounded-full"
+                />
+              </div>
 
-                <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(uploadQueue.current / uploadQueue.total) * 100}%` }}
-                    className="h-full bg-gradient-to-r from-indigo-500 to-violet-500"
-                  />
-                </div>
+              <div className="space-y-3 mb-6">
+                {uploadQueue.logs.map((log, idx) => (
+                  <motion.div key={log + idx} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                    className="flex items-center gap-3 text-xs font-bold text-slate-400"
+                  >
+                    <ChevronRight size={14} className="text-indigo-500 shrink-0" />
+                    <span className="truncate opacity-80">{log}</span>
+                  </motion.div>
+                ))}
+              </div>
 
-                <div className="space-y-2 pt-2 border-t border-white/5">
-                  <AnimatePresence mode="popLayout">
-                    {uploadQueue.logs.map((log, idx) => (
-                      <motion.div
-                        key={log + idx}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        className="flex items-center gap-2 text-[11px] font-medium text-slate-300"
-                      >
-                        <ChevronRight size={10} className="text-indigo-500" />
-                        <span className="truncate">{log}</span>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
+              <div className="flex gap-6 pt-6 border-t border-white/5">
+                <div className="flex items-center gap-2 text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                  <CheckCircle2 size={16} /> {uploadQueue.success} Valid
                 </div>
-
-                <div className="flex gap-4 pt-2">
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 uppercase">
-                    <CheckCircle2 size={12} /> {uploadQueue.success} Sucessos
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-400 uppercase">
-                    <AlertCircle size={12} /> {uploadQueue.error} Erros
-                  </div>
+                <div className="flex items-center gap-2 text-[10px] font-black text-rose-400 uppercase tracking-widest">
+                  <AlertCircle size={16} /> {uploadQueue.error} Errors
                 </div>
               </div>
             </div>
@@ -885,19 +837,24 @@ function App() {
       </AnimatePresence>
 
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        
+        body {
+          font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
         .custom-scrollbar::-webkit-scrollbar {
-          width: 8px;
+          width: 6px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
-          background: #f1f5f9;
-          border-radius: 10px;
+          background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #cbd5e1;
-          border-radius: 10px;
+          background: rgba(0,0,0,0.05);
+          border-radius: 20px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #94a3b8;
+          background: rgba(0,0,0,0.1);
         }
       `}</style>
     </div>
