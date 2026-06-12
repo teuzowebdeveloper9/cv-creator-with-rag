@@ -9,6 +9,20 @@ services:
       - qdrant_storage:/qdrant/storage
     restart: always
 
+  minio:
+    image: minio/minio
+    container_name: cv-generator-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_storage:/data
+    command: server /data --console-address ":9001"
+    restart: always
+
   backend:
     build:
       context: ./backend
@@ -21,18 +35,10 @@ services:
       - backend_db:/app/db
     env_file:
       - .env
-    environment:
-      - DATABASE_PATH=/app/db/db.sqlite3
     depends_on:
       - qdrant
       - redis
-    restart: always
-
-  redis:
-    image: redis:alpine
-    container_name: cv-generator-redis
-    ports:
-      - "6379:6379"
+      - minio
     restart: always
 
   worker:
@@ -46,13 +52,16 @@ services:
       - backend_db:/app/db
     env_file:
       - .env
-    environment:
-      - DATABASE_PATH=/app/db/db.sqlite3
-      - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
-      - qdrant
-      - redis
       - backend
+      - redis
+    restart: always
+
+  redis:
+    image: redis:alpine
+    container_name: cv-generator-redis
+    ports:
+      - "6379:6379"
     restart: always
 
   frontend:
@@ -74,3 +83,4 @@ services:
 volumes:
   qdrant_storage:
   backend_db:
+  minio_storage:

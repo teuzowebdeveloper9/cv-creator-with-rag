@@ -17,5 +17,8 @@ celery
 redis
 google-generativeai
 pytest
+fpdf2
+markdown
+boto3
 pytest-django
 pytest-mock
