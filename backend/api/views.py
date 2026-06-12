@@ -77,6 +77,32 @@ class DocumentListView(generics.ListAPIView):
 def _collect_llm_response(orchestrator, prompt: str, system_prompt: str) -> str:
     return "".join(chunk for chunk in orchestrator.stream(prompt, system_prompt) if chunk)
 
+def _format_context_fragments(fragments):
+    blocks = []
+    for index, fragment in enumerate(fragments, start=1):
+        text = str(fragment.get("text", "")).strip()
+        if not text:
+            continue
+
+        metadata_parts = []
+        for key, label in (
+            ("source", "source"),
+            ("document_name", "document"),
+            ("document_created_at", "created_at"),
+            ("chunk_index", "chunk"),
+        ):
+            value = fragment.get(key)
+            if value not in (None, ""):
+                metadata_parts.append(f"{label}={value}")
+
+        header = f"Fragment {index}"
+        if metadata_parts:
+            header += " | " + " | ".join(metadata_parts)
+
+        blocks.append(f"[{header}]\n{text}")
+
+    return "\n\n---\n\n".join(blocks)
+
 class GenerateView(APIView):
     def post(self, request):
         serializer = GenerateSerializer(data=request.data)
@@ -99,7 +125,7 @@ class GenerateView(APIView):
         # 1. Retrieve relevant context
         try:
             context_fragments = vector_store.search(collection_name="user_context", query=job_description, limit=10)
-            context_text = "\n---\n".join([f["text"] for f in context_fragments])
+            context_text = _format_context_fragments(context_fragments)
         except Exception as e:
             return Response({"error": f"Erro ao buscar no banco vetorial: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -109,6 +135,7 @@ class GenerateView(APIView):
         com base nas experiencias do usuario e na descricao da vaga fornecida.
         Use apenas as informacoes fornecidas no contexto do usuario.
         Se alguma informacao estiver ausente, omita essa informacao em vez de deixar lacunas ou placeholders.
+        Priorize experiencias que tenham relacao semantica direta com a vaga e, quando houver empate, prefira os fragmentos mais recentes.
         Formate o curriculo de forma profissional em Markdown.
 
         {CV_OUTPUT_RULES}
@@ -165,7 +192,7 @@ class UpdateCVView(APIView):
             query = "\n".join([job_description, edit_instruction]).strip()
             if query:
                 context_fragments = vector_store.search(collection_name="user_context", query=query, limit=8)
-                context_text = "\n---\n".join([fragment.get("text", "") for fragment in context_fragments])
+                context_text = _format_context_fragments(context_fragments)
         except Exception as e:
             print(f"Failed to load vector context for CV update: {str(e)}")
 
@@ -174,6 +201,7 @@ class UpdateCVView(APIView):
         Preserve fatos, datas, cargos e informacoes ja existentes quando eles nao forem contraditos pelo pedido.
         Use o contexto recuperado apenas para complementar informacoes reais.
         Se o pedido exigir informacao que nao existe no curriculo nem no contexto, nao invente.
+        Priorize o contexto mais ligado ao pedido atual e, entre fragmentos semelhantes, use os mais recentes como referencia principal.
         Retorne sempre o curriculo completo atualizado, nao apenas o trecho alterado.
 
         {CV_OUTPUT_RULES}

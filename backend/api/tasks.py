@@ -34,7 +34,20 @@ def process_document_task(document_id, file_content_b64):
             return {"error": doc.error_message}
 
         chunks = processor.split_text(text)
-        metadatas = [{"source": doc.name} for _ in chunks]
+        created_at = doc.created_at.isoformat() if doc.created_at else ""
+        updated_at = doc.updated_at.isoformat() if doc.updated_at else ""
+        metadatas = [
+            {
+                "source": doc.name,
+                "document_id": doc.id,
+                "document_name": doc.name,
+                "document_created_at": created_at,
+                "document_updated_at": updated_at,
+                "chunk_index": index,
+                "chunk_total": len(chunks),
+            }
+            for index, _ in enumerate(chunks)
+        ]
         vector_store.upsert(collection_name="user_context", texts=chunks, metadatas=metadatas)
         
         doc.status = 'SUCCESS'
