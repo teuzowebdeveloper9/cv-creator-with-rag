@@ -183,7 +183,12 @@ class GenerateView(APIView):
 
         # 1. Retrieve relevant context
         try:
-            context_fragments = vector_store.search(collection_name="user_context", query=job_description, limit=10)
+            context_fragments = vector_store.search(
+                collection_name="user_context",
+                query=job_description,
+                limit=15,
+                max_per_source=2,
+            )
             context_text = _format_context_fragments(context_fragments)
         except Exception as e:
             return _safe_error_response("Vector search failed", e)
@@ -257,7 +262,12 @@ class UpdateCVView(APIView):
             vector_store = QdrantVectorStore()
             query = "\n".join([job_description, edit_instruction]).strip()
             if query:
-                context_fragments = vector_store.search(collection_name="user_context", query=query, limit=8)
+                context_fragments = vector_store.search(
+                    collection_name="user_context",
+                    query=query,
+                    limit=12,
+                    max_per_source=2,
+                )
                 context_text = _format_context_fragments(context_fragments)
         except Exception as e:
             logger.warning(f"Failed to load vector context for CV update: {e}")
