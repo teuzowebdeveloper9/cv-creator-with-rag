@@ -152,6 +152,40 @@ class QdrantVectorStore(VectorStore):
             str(payload.get("text", ""))[:128],
         ])
 
+    def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
+        """Get statistics about the collection metadata quality."""
+        info = self.client.get_collection(collection_name)
+        total = info.points_count
+
+        sample_size = min(50, total)
+        has_chunk_index = 0
+        has_document_id = 0
+        has_created_at = 0
+
+        if sample_size > 0:
+            result, _ = self.client.scroll(
+                collection_name=collection_name,
+                limit=sample_size,
+                with_payload=True,
+            )
+            for point in result:
+                payload = point.payload or {}
+                if payload.get("chunk_index") is not None:
+                    has_chunk_index += 1
+                if payload.get("document_id") is not None and payload.get("document_id") != 0:
+                    has_document_id += 1
+                if payload.get("document_created_at"):
+                    has_created_at += 1
+
+        return {
+            "total_points": total,
+            "sample_size": sample_size,
+            "has_chunk_index": has_chunk_index,
+            "has_document_id": has_document_id,
+            "has_created_at": has_created_at,
+            "metadata_quality": "good" if has_chunk_index == sample_size else "incomplete",
+        }
+
     def _source_key(self, payload: Dict[str, Any]) -> str:
         return str(payload.get("document_id") or payload.get("source") or self._result_key(payload))
 
