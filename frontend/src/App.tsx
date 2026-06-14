@@ -23,6 +23,7 @@ import {
   Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import RagCvLogo from './components/RagCvLogo';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -427,18 +428,7 @@ function App() {
           className="flex items-center gap-8"
         >
           <div className="flex items-center gap-4">
-            <div className="bg-indigo-600 p-3.5 rounded-3xl shadow-[0_8px_30px_rgba(79,70,229,0.3)]">
-              <Sparkles className="text-white" size={28} />
-            </div>
-            <div>
-              <h1 className="text-3xl font-black tracking-tighter gradient-text">
-                RAG CV <span className="text-slate-900">Creator</span>
-              </h1>
-              <div className="flex items-center gap-2 mt-0.5">
-                <div className="h-1 w-12 bg-indigo-600 rounded-full"></div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Next-Gen Resume Engine</p>
-              </div>
-            </div>
+            <RagCvLogo size={44} showText />
           </div>
 
           <div className="hidden lg:flex items-center gap-4 pl-8 border-l border-slate-200">
