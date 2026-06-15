@@ -113,13 +113,13 @@ class UploadPhotoView(APIView):
             photo_bytes = photo.read()
             storage.save_photo(file_name, photo_bytes)
 
-            photo_url = f"/api/profile/photo/file/{file_name}"
+            photo_url = file_name
 
             profile, _ = UserProfile.objects.get_or_create(id=1)
             profile.photo_url = photo_url
             profile.save()
 
-            return Response({"photo_url": photo_url}, status=status.HTTP_200_OK)
+            return Response({"photo_url": f"/api/profile/photo/file/{photo_url}"}, status=status.HTTP_200_OK)
         except Exception as e:
             return _safe_error_response("Photo upload failed", e)
 
