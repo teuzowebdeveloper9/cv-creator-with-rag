@@ -172,7 +172,11 @@ function App() {
   const fetchProfile = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/profile/`);
-      setProfile(response.data);
+      const data = response.data;
+      if (data.photo_url && data.photo_url.startsWith('/')) {
+        data.photo_url = `${API_BASE_URL}${data.photo_url}`;
+      }
+      setProfile(data);
     } catch (error) {
       console.error("Erro ao buscar perfil:", error);
     }
@@ -199,7 +203,7 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/profile/photo/`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setProfile(prev => ({ ...prev, photo_url: response.data.photo_url }));
+      setProfile(prev => ({ ...prev, photo_url: `${API_BASE_URL}${response.data.photo_url}` }));
       setUploadStatus({ type: 'success', message: 'Foto uploaded com sucesso!' });
     } catch (error) {
       setUploadStatus({ type: 'error', message: 'Erro ao upload foto.' });
@@ -557,15 +561,15 @@ function App() {
               className="bg-white rounded-[2rem] shadow-2xl p-8 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-black text-slate-800">Meu Perfil</h2>
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-2xl font-black text-slate-800">Meu Perfil</h2>
                 <button onClick={() => setShowProfile(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
                   <X size={20} />
                 </button>
               </div>
 
               {/* Photo Upload */}
-              <div className="flex items-center gap-4 mb-6 p-4 bg-slate-50 rounded-2xl">
+              <div className="flex items-center gap-4 mb-8 p-4 bg-slate-50 rounded-2xl">
                 <div className="relative">
                   {profile.photo_url ? (
                     <img src={profile.photo_url} alt="Photo" className="w-20 h-20 rounded-2xl object-cover border-2 border-white shadow-md" />
@@ -594,7 +598,7 @@ function App() {
               </div>
 
               {/* Profile Fields */}
-              <div className="space-y-4">
+              <div className="space-y-5 mt-2">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Nome Completo</label>
                   <input
