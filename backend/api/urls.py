@@ -1,5 +1,8 @@
 from django.urls import path
-from .views import UploadView, GenerateView, ProviderStatusView, DocumentListView, DownloadPDFView, UpdateCVView
+from .views import (
+    UploadView, GenerateView, ProviderStatusView, DocumentListView,
+    DownloadPDFView, UpdateCVView, UserProfileView, UploadPhotoView
+)
 
 urlpatterns = [
     path('upload/', UploadView.as_view(), name='upload'),
@@ -8,4 +11,6 @@ urlpatterns = [
     path('download-pdf/', DownloadPDFView.as_view(), name='download-pdf'),
     path('providers-status/', ProviderStatusView.as_view(), name='providers-status'),
     path('documents/', DocumentListView.as_view(), name='documents'),
+    path('profile/', UserProfileView.as_view(), name='profile'),
+    path('profile/photo/', UploadPhotoView.as_view(), name='profile-photo'),
 ]
