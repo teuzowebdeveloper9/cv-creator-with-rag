@@ -48,9 +48,9 @@ class QdrantVectorStore(VectorStore):
         
         self.client.upsert(collection_name=collection_name, points=points)
 
-    def search(self, collection_name: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def search(self, collection_name: str, query: str, limit: int = 5, max_per_source: int = 1) -> List[Dict[str, Any]]:
         self._ensure_collection(collection_name)
-        candidate_limit = max(limit * 4, 12)
+        candidate_limit = max(limit * 6, 20)
         queries = self._build_query_variants(query)
         merged: Dict[str, Dict[str, Any]] = {}
 
@@ -96,7 +96,7 @@ class QdrantVectorStore(VectorStore):
         per_source_count: Dict[str, int] = defaultdict(int)
         for item in ranked:
             source_key = self._source_key(item)
-            if per_source_count[source_key] >= 2:
+            if per_source_count[source_key] >= max_per_source:
                 continue
             selected.append(item)
             per_source_count[source_key] += 1
