@@ -173,8 +173,15 @@ function App() {
     try {
       const response = await axios.get(`${API_BASE_URL}/profile/`);
       const data = response.data;
-      if (data.photo_url && data.photo_url.startsWith('/')) {
-        data.photo_url = `${API_BASE_URL}${data.photo_url}`;
+      if (data.photo_url) {
+        if (data.photo_url.startsWith('http')) {
+          const match = data.photo_url.match(/\/api\/api\/profile\/photo\/file\/(.+)$/);
+          if (match) {
+            data.photo_url = `/api/profile/photo/file/${match[1]}`;
+          }
+        } else if (!data.photo_url.startsWith('/')) {
+          data.photo_url = `/api/profile/photo/file/${data.photo_url}`;
+        }
       }
       setProfile(data);
     } catch (error) {
@@ -203,7 +210,7 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/profile/photo/`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setProfile(prev => ({ ...prev, photo_url: `${API_BASE_URL}${response.data.photo_url}` }));
+      setProfile(prev => ({ ...prev, photo_url: response.data.photo_url }));
       setUploadStatus({ type: 'success', message: 'Foto uploaded com sucesso!' });
     } catch (error) {
       setUploadStatus({ type: 'error', message: 'Erro ao upload foto.' });
