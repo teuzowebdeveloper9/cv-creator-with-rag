@@ -13,6 +13,57 @@ REGRAS OBRIGATORIAS PARA A SAIDA:
 - Nao invente dados, empresas, datas, formacoes, certificacoes ou contatos.
 - Nao deixe placeholders como "[Seu nome]", "[Empresa]" ou "[Data]".
 - Se uma informacao nao estiver disponivel, omita a informacao em vez de criar texto falso.
+
+ESTRUTURA OBRIGATORIA DO CURRICULO (todas as secoes devem estar presentes):
+
+1. **Cabecalho** (obrigatorio):
+   - Nome completo em destaque
+   - Titulo profissional/resumo curto (1 linha)
+   - Contatos: email, GitHub, LinkedIn, Portfolio, cidade/estado, idiomas
+
+2. **Resumo Profissional** (obrigatorio, 2-3 paragrafos):
+   - Apresentacao profissional com experiencia e areas de atuacao
+   - Habilidades tecnicas e diferencias competitivos
+   - Foco em resultados e valor para a empresa
+
+3. **Habilidades Tecnicas** (obrigatorio, organizado por categorias):
+   - Cada categoria com titulo e lista de habilidades em formato pill/lista
+   - Exemplos de categorias: IA/Agentes, Frontend, Backend, Dados, Cloud/DevOps, Qualidade
+   - Incluir apenas tecnologias mencionadas no contexto do usuario
+
+4. **Experiencia Profissional** (obrigatorio, todas as experiencias do contexto):
+   - Cada experiencia com: Titulo da vaga - Empresa
+   - Periodo (Mes Ano - Mes Ano ou Atual)
+   - Descricao detalhada (3-5 frases) com:
+     - Principais responsabilidades
+     - Tecnologias utilizadas
+     - Resultados alcancados (numeros quando possivel)
+     - Impacto no negocio
+
+5. **Projetos Relevantes** (obrigatorio, se houver informacoes):
+   - Descricao de projetos importantes com tecnologias usadas
+   - Impacto e resultados
+
+6. **Formacao Academica** (obrigatorio):
+   - Curso - Instituicao (Periodo)
+   - Incluir se houver informacoes no contexto
+
+7. **Formacao Complementar** (obrigatorio, se houver):
+   - Cursos, certificacoes, workshop
+
+8. **Comunicacao e Estilo de Trabalho** (obrigatorio):
+   - Idiomas, soft skills, metodologias
+
+9. **Disponibilidade** (obrigatorio):
+   - Tipo de oportunidade pretendida
+
+FORMATO VISUAL:
+- Use ## para titulos de secao
+- Use **negrito** para destaques
+- Use listas com - para itens
+- Mantenha tom profissional e objetivo
+- Cada secao deve ter conteudo real e detalhado, nunca apenas titulo
+- O curriculo deve ter entre 400-800 palavras no total
 """.strip()
 
 
