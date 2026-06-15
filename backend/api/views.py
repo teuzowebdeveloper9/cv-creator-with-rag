@@ -313,7 +313,7 @@ class GenerateView(APIView):
         # 3. Build Prompt
         system_prompt = f"""
         Voce e um especialista em recrutamento e selecao. Sua tarefa e gerar um curriculo altamente personalizado
-        com base nas informacoes do usuario e na descricao da vaga fornecida.
+        com base nas experiencias do usuario e na descricao da vaga fornecida.
 
         O contexto do usuario foi dividido em categorias:
         - Resumo profissional e perfil
@@ -395,7 +395,12 @@ class UpdateCVView(APIView):
             vector_store = QdrantVectorStore()
             query = "\n".join([job_description, edit_instruction]).strip()
             if query:
-                context_fragments = vector_store.search(collection_name="user_context", query=query, limit=8)
+                context_fragments = vector_store.search(
+                    collection_name="user_context",
+                    query=query,
+                    limit=12,
+                    max_per_source=2,
+                )
                 context_text = _format_context_fragments(context_fragments)
         except Exception as e:
             logger.warning(f"Failed to load vector context for CV update: {e}")
