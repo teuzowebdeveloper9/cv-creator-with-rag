@@ -78,3 +78,11 @@ class BlobStorage:
             logger.info(f"Photo {file_name} saved to blob storage.")
         except Exception as e:
             logger.error(f"Failed to save photo to blob storage: {e}")
+
+    def get_photo(self, file_name: str) -> bytes | None:
+        try:
+            response = self.s3.get_object(Bucket=self.photo_bucket, Key=file_name)
+            return response['Body'].read()
+        except Exception as e:
+            logger.error(f"Failed to get photo from blob storage: {e}")
+            return None

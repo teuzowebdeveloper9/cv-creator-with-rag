@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     UploadView, GenerateView, ProviderStatusView, DocumentListView,
-    DownloadPDFView, UpdateCVView, UserProfileView, UploadPhotoView
+    DownloadPDFView, UpdateCVView, UserProfileView, UploadPhotoView, ServePhotoView
 )
 
 urlpatterns = [
@@ -13,4 +13,5 @@ urlpatterns = [
     path('documents/', DocumentListView.as_view(), name='documents'),
     path('profile/', UserProfileView.as_view(), name='profile'),
     path('profile/photo/', UploadPhotoView.as_view(), name='profile-photo'),
+    path('profile/photo/file/<str:filename>', ServePhotoView.as_view(), name='serve-photo'),
 ]

@@ -113,7 +113,7 @@ class UploadPhotoView(APIView):
             photo_bytes = photo.read()
             storage.save_photo(file_name, photo_bytes)
 
-            photo_url = f"http://minio:9000/photos/{file_name}"
+            photo_url = f"/api/profile/photo/file/{file_name}"
 
             profile, _ = UserProfile.objects.get_or_create(id=1)
             profile.photo_url = photo_url
@@ -122,6 +122,28 @@ class UploadPhotoView(APIView):
             return Response({"photo_url": photo_url}, status=status.HTTP_200_OK)
         except Exception as e:
             return _safe_error_response("Photo upload failed", e)
+
+
+class ServePhotoView(APIView):
+    def get(self, request, filename):
+        try:
+            storage = BlobStorage()
+            photo_bytes = storage.get_photo(filename)
+            if not photo_bytes:
+                return Response({"error": "Photo not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            ext = os.path.splitext(filename)[1].lower()
+            content_type = 'image/jpeg'
+            if ext == '.png':
+                content_type = 'image/png'
+            elif ext == '.webp':
+                content_type = 'image/webp'
+
+            response = HttpResponse(photo_bytes, content_type=content_type)
+            response['Cache-Control'] = 'public, max-age=86400'
+            return response
+        except Exception as e:
+            return _safe_error_response("Photo serve failed", e)
 
 
 class DownloadPDFView(APIView):
