@@ -17,7 +17,7 @@ celery
 redis
 google-generativeai
 pytest
-fpdf2
+weasyprint
 markdown
 boto3
 pytest-django
