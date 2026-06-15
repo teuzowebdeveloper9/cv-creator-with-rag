@@ -10,7 +10,7 @@ class UserProfile(models.Model):
     portfolio = models.URLField(blank=True, default="")
     city = models.CharField(max_length=100, blank=True, default="")
     summary = models.TextField(blank=True, default="")
-    photo_url = models.URLField(blank=True, default="")
+    photo_url = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
