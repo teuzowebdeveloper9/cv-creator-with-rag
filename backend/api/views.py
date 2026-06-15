@@ -149,11 +149,12 @@ class ServePhotoView(APIView):
 class DownloadPDFView(APIView):
     def post(self, request):
         md_content = sanitize_cv_markdown(request.data.get('markdown', ''))
+        photo_url = request.data.get('photo_url', '')
         if not md_content:
             return Response({"error": "Nenhum conteúdo fornecido"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            pdf_bytes = PDFGenerator.generate(md_content)
+            pdf_bytes = PDFGenerator.generate(md_content, photo_url)
 
             # Save to Blob Storage (MinIO)
             try:

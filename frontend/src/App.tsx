@@ -255,7 +255,7 @@ function App() {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ markdown }),
+      body: JSON.stringify({ markdown, photo_url: profile.photo_url || '' }),
     });
 
     if (!response.ok) {

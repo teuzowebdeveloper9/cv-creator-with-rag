@@ -1,238 +1,405 @@
+import os
 import re
-from dataclasses import dataclass, field
-
-from fpdf import FPDF
+import base64
+from weasyprint import HTML
 
 from .cv_markdown import sanitize_cv_markdown
 
 
-@dataclass
-class ResumeSection:
-    title: str
-    items: list[tuple[str, str]] = field(default_factory=list)
-
-
 class PDFGenerator:
-    NAVY = (19, 34, 56)
-    BLUE = (31, 58, 95)
-    ACCENT = (47, 143, 131)
-    TEXT = (52, 64, 84)
-    LINE = (218, 228, 240)
-
     @staticmethod
-    def generate(md_content: str) -> bytes:
+    def generate(md_content: str, photo_url: str = None) -> bytes:
         clean_md = sanitize_cv_markdown(md_content)
-        resume = PDFGenerator._parse_resume(clean_md)
-
-        pdf = FPDF(format="A4", unit="mm")
-        pdf.set_title(PDFGenerator._plain_text(resume["name"]))
-        pdf.set_author("RAG CV Creator")
-        pdf.set_margins(left=17, top=15, right=17)
-        pdf.set_auto_page_break(auto=True, margin=17)
-        pdf.add_page()
-
-        PDFGenerator._draw_header(pdf, resume["name"], resume["intro"])
-        PDFGenerator._render_sections(pdf, resume["sections"])
-
-        return bytes(pdf.output())
+        html = PDFGenerator._markdown_to_html(clean_md, photo_url)
+        pdf = HTML(string=html).write_pdf()
+        return pdf
 
     @staticmethod
-    def _parse_resume(content: str) -> dict[str, object]:
-        name = "Curriculo"
-        intro: list[str] = []
-        sections: list[ResumeSection] = []
-        current_section: ResumeSection | None = None
+    def _markdown_to_html(content: str, photo_url: str = None) -> str:
+        lines = content.splitlines()
+        body_html = PDFGenerator._parse_markdown_to_html(lines)
+        photo_html = PDFGenerator._get_photo_html(photo_url)
 
-        for raw_line in content.splitlines():
-            line = raw_line.strip()
+        return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page {{ size: A4; margin: 0; }}
+  @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    font-family: 'Inter', 'Segoe UI', -apple-system, sans-serif;
+    color: #222;
+    background: #f5f7fb;
+    line-height: 1.5;
+  }}
+  .page {{
+    width: 210mm;
+    min-height: 297mm;
+    padding: 18mm 18mm 20mm 18mm;
+    margin: 10mm auto;
+    background: #fff;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    position: relative;
+  }}
+  header {{
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 12px;
+  }}
+  .header-main {{
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }}
+  .profile-photo-wrap {{
+    width: 104px;
+    height: 104px;
+    flex: 0 0 104px;
+    overflow: hidden;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    background: #ead8ce;
+    box-shadow: 0 0 0 1px #e2e8f0, 0 8px 22px rgba(15,23,42,0.16);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }}
+  .profile-photo-wrap span {{
+    display: none;
+    color: #4a5568;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }}
+  .profile-photo-wrap.photo-missing span {{ display: block; }}
+  .profile-photo {{
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+    object-position: center center;
+    background: #ead8ce;
+  }}
+  .profile-copy {{ flex: 1; min-width: 0; }}
+  .name {{ font-size: 26px; letter-spacing: 0.5px; font-weight: 800; }}
+  .role {{ font-size: 14px; color: #4a5568; margin-top: 4px; }}
+  .contact {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #4a5568;
+  }}
+  .contact a {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #4a5568;
+    text-decoration: none;
+    font-weight: 600;
+  }}
+  .contact a:hover {{ color: #0f172a; }}
+  .contact svg {{
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+  }}
+  h2 {{
+    font-size: 13px;
+    letter-spacing: 0.6px;
+    color: #0f172a;
+    margin: 0 0 8px;
+    text-transform: uppercase;
+  }}
+  p, li {{ font-size: 12px; line-height: 1.5; margin: 0; }}
+  .section {{ display: flex; flex-direction: column; gap: 6px; }}
+  .pill-list {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+  .pill {{
+    border: 1px solid #e2e8f0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #f8fafc;
+    font-size: 11px;
+    color: #0b1220;
+    white-space: nowrap;
+  }}
+  .sub {{
+    font-weight: 700;
+    margin-bottom: 2px;
+    font-size: 12px;
+    color: #0d1b2a;
+  }}
+  .experience {{
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }}
+  .exp-item {{
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fcfdff;
+  }}
+  .exp-header {{
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }}
+  .exp-title {{ font-weight: 700; font-size: 12.5px; }}
+  .exp-meta {{ font-size: 11px; color: #4a5568; }}
+  ul {{ padding-left: 16px; margin: 0; display: grid; gap: 4px; }}
+  .two-col {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }}
+  .note {{ font-size: 11px; color: #4a5568; }}
+  a {{ color: #0f3460; text-decoration: none; }}
+  @media print {{
+    body {{ background: #fff; margin: 0; }}
+    .page {{ margin: 0; box-shadow: none; page-break-after: always; }}
+    .page:last-of-type {{ page-break-after: auto; }}
+  }}
+</style>
+</head>
+<body>
+  <div class="page">
+    {photo_html}
+    {body_html}
+  </div>
+</body>
+</html>"""
+
+    @staticmethod
+    def _get_photo_html(photo_url: str) -> str:
+        if not photo_url:
+            return """<header>
+  <div class="header-main">
+    <div class="profile-photo-wrap photo-missing">
+      <span>CV</span>
+    </div>
+    <div class="profile-copy" id="header-copy"></div>
+  </div>
+</header>"""
+
+        full_url = photo_url
+        if photo_url.startswith('/'):
+            full_url = f"http://localhost:8000{photo_url}"
+
+        return f"""<header>
+  <div class="header-main">
+    <div class="profile-photo-wrap">
+      <img class="profile-photo" src="{full_url}" alt="Foto" onerror="this.parentElement.classList.add('photo-missing'); this.remove();" />
+      <span>CV</span>
+    </div>
+    <div class="profile-copy" id="header-copy"></div>
+  </div>
+</header>"""
+
+    @staticmethod
+    def _parse_markdown_to_html(lines: list[str]) -> str:
+        html_parts = []
+        in_header = True
+        header_html = []
+        current_section = []
+        sections = []
+        in_pill_list = False
+        in_experience = False
+        experience_items = []
+
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+
             if not line:
+                i += 1
                 continue
 
-            heading = re.match(r"^(#{1,6})\s+(.+)$", line)
-            if heading:
-                level = len(heading.group(1))
-                title = PDFGenerator._plain_text(heading.group(2))
-                if level == 1 and name == "Curriculo":
-                    name = title
-                    continue
+            h1_match = re.match(r"^#\s+(.+)$", line)
+            if h1_match and in_header:
+                name = PDFGenerator._md_to_html_inline(h1_match.group(1))
+                header_html.append(f'<div class="name">{name}</div>')
+                i += 1
+                continue
 
-                if level <= 2 or current_section is None:
-                    current_section = ResumeSection(title=title)
-                    sections.append(current_section)
+            h2_match = re.match(r"^##\s+(.+)$", line)
+            if h2_match:
+                if in_header and header_html:
+                    header_content = "\n".join(header_html)
+                    html_parts.insert(0, f"""<header>
+  <div class="header-main">
+    <div class="profile-photo-wrap{' photo-missing' if not any('profile-photo' in h for h in [header_content]) else ''}">
+      <span>CV</span>
+    </div>
+    <div class="profile-copy">
+      {header_content}
+    </div>
+  </div>
+</header>""")
+                    in_header = False
+
+                if current_section:
+                    sections.append(PDFGenerator._render_section(current_section))
+                    current_section = []
+                if experience_items:
+                    sections.append(PDFGenerator._render_experience(experience_items))
+                    experience_items = []
+                in_pill_list = False
+                in_experience = False
+
+                title = h2_match.group(1).strip()
+                current_section = {"title": title, "content": []}
+
+                if "experi" in title.lower():
+                    in_experience = True
+
+                i += 1
+                continue
+
+            if current_section is not None:
+                if in_experience:
+                    exp_title_match = re.match(r"^(.+?)\s*[-–]\s*(.+)$", line)
+                    date_match = re.match(r"^(Jan|Fev|Mar|Abr|Mai|Jun|Jul|Ago|Set|Out|Nov|Dez)\s+\d{4}", line)
+
+                    if line.startswith("- ") or line.startswith("* "):
+                        text = PDFGenerator._md_to_html_inline(line[2:])
+                        if experience_items:
+                            experience_items[-1]["content"].append(f"<li>{text}</li>")
+                    elif exp_title_match and not date_match:
+                        if experience_items:
+                            sections.append(PDFGenerator._render_experience(experience_items))
+                            experience_items = []
+                        experience_items.append({
+                            "title": line,
+                            "meta": "",
+                            "content": []
+                        })
+                    elif date_match:
+                        if experience_items:
+                            experience_items[-1]["meta"] = line
+                    else:
+                        text = PDFGenerator._md_to_html_inline(line)
+                        if experience_items:
+                            experience_items[-1]["content"].append(f"<p>{text}</p>")
+                        else:
+                            current_section["content"].append(line)
                 else:
-                    current_section.items.append(("subheading", title))
-                continue
+                    current_section["content"].append(line)
 
-            bullet = re.match(r"^[-*+]\s+(.+)$", line)
-            ordered = re.match(r"^\d+[\.)]\s+(.+)$", line)
-            if bullet or ordered:
-                item = bullet.group(1) if bullet else ordered.group(1)
-                if current_section is None:
-                    current_section = ResumeSection(title="Destaques")
-                    sections.append(current_section)
-                current_section.items.append(("bullet", item))
-                continue
+            i += 1
 
-            if current_section is None:
-                intro.append(line)
-            else:
-                current_section.items.append(("paragraph", line))
+        if current_section:
+            sections.append(PDFGenerator._render_section(current_section))
+        if experience_items:
+            sections.append(PDFGenerator._render_experience(experience_items))
 
-        return {"name": name, "intro": intro, "sections": sections}
+        return "\n".join(sections)
 
     @staticmethod
-    def _draw_header(pdf: FPDF, name: str, intro: list[str]) -> None:
-        page_width = pdf.w
-        pdf.set_fill_color(*PDFGenerator.NAVY)
-        pdf.rect(0, 0, page_width, 49, "F")
+    def _render_section(section: dict) -> str:
+        title = section["title"]
+        content_lines = section["content"]
 
-        pdf.set_fill_color(*PDFGenerator.BLUE)
-        pdf.rect(0, 39, page_width, 10, "F")
-        pdf.set_fill_color(*PDFGenerator.ACCENT)
-        pdf.rect(0, 47, page_width, 2.2, "F")
+        if not content_lines:
+            return ""
 
-        monogram = PDFGenerator._initials(name)
-        pdf.set_fill_color(255, 255, 255)
-        pdf.set_draw_color(120, 210, 198)
-        pdf.set_line_width(0.45)
-        pdf.ellipse(174, 13, 17, 17, "DF")
-        pdf.set_xy(174, 18.2)
-        pdf.set_font("helvetica", "B", 8.5)
-        pdf.set_text_color(*PDFGenerator.NAVY)
-        pdf.cell(17, 5, monogram, align="C")
+        title_html = f'<h2>{title}</h2>'
+        body_html = PDFGenerator._render_content(content_lines)
 
-        pdf.set_xy(17, 12.5)
-        pdf.set_font("helvetica", "B", 22)
-        pdf.set_text_color(255, 255, 255)
-        pdf.multi_cell(145, 8.2, PDFGenerator._plain_text(name))
-
-        intro_text = PDFGenerator._plain_text(" ".join(intro))
-        if intro_text:
-            pdf.set_x(17)
-            pdf.set_font("helvetica", "", 9.6)
-            pdf.set_text_color(221, 228, 238)
-            pdf.multi_cell(151, 5.3, intro_text)
-
-        pdf.set_y(58)
+        return f"""<section class="section">
+  {title_html}
+  {body_html}
+</section>"""
 
     @staticmethod
-    def _render_sections(pdf: FPDF, sections: list[ResumeSection]) -> None:
-        if not sections:
-            return
+    def _render_experience(items: list[dict]) -> str:
+        if not items:
+            return ""
 
-        for index, section in enumerate(sections):
-            if index > 0:
-                pdf.ln(2.5)
-            PDFGenerator._write_section_title(pdf, section.title)
-            for kind, text in section.items:
-                if kind == "bullet":
-                    PDFGenerator._write_bullet(pdf, PDFGenerator._plain_text(text))
-                elif kind == "subheading":
-                    PDFGenerator._write_subheading(pdf, PDFGenerator._plain_text(text))
+        exp_html = ""
+        for item in items:
+            title = PDFGenerator._md_to_html_inline(item["title"])
+            meta = item.get("meta", "")
+            content = "\n".join(item["content"])
+
+            exp_html += f"""<div class="exp-item">
+  <div class="exp-header">
+    <div class="exp-title">{title}</div>
+    <div class="exp-meta">{meta}</div>
+  </div>
+  {content}
+</div>"""
+
+        return f"""<section class="section">
+  <h2>Experiência Profissional</h2>
+  <div class="experience">
+    {exp_html}
+  </div>
+</section>"""
+
+    @staticmethod
+    def _render_content(lines: list[str]) -> str:
+        html_parts = []
+        pill_items = []
+        in_pill_list = False
+        sub_title = None
+
+        for line in lines:
+            if not line.strip():
+                continue
+
+            if line.startswith("## ") or line.startswith("# "):
+                continue
+
+            if line.startswith("### "):
+                if in_pill_list and pill_items:
+                    pills_html = "".join(f'<span class="pill">{PDFGenerator._md_to_html_inline(p)}</span>' for p in pill_items)
+                    html_parts.append(f'<div class="pill-list">{pills_html}</div>')
+                    pill_items = []
+                    in_pill_list = False
+
+                sub_title = PDFGenerator._md_to_html_inline(line[4:])
+                html_parts.append(f'<div class="sub">{sub_title}</div>')
+                continue
+
+            if line.startswith("- ") or line.startswith("* "):
+                item_text = PDFGenerator._md_to_html_inline(line[2:])
+                if sub_title:
+                    pill_items.append(item_text)
+                    in_pill_list = True
                 else:
-                    PDFGenerator._write_paragraph(pdf, PDFGenerator._plain_text(text))
+                    html_parts.append(f"<li>{item_text}</li>")
+                continue
+
+            if in_pill_list and pill_items:
+                pills_html = "".join(f'<span class="pill">{PDFGenerator._md_to_html_inline(p)}</span>' for p in pill_items)
+                html_parts.append(f'<div class="pill-list">{pills_html}</div>')
+                pill_items = []
+                in_pill_list = False
+
+            text = PDFGenerator._md_to_html_inline(line)
+            html_parts.append(f"<p>{text}</p>")
+
+        if in_pill_list and pill_items:
+            pills_html = "".join(f'<span class="pill">{PDFGenerator._md_to_html_inline(p)}</span>' for p in pill_items)
+            html_parts.append(f'<div class="pill-list">{pills_html}</div>')
+
+        return "\n".join(html_parts)
 
     @staticmethod
-    def _write_section_title(pdf: FPDF, title: str) -> None:
-        if not title:
-            return
-        PDFGenerator._ensure_space(pdf, 15)
-
-        y = pdf.get_y()
-        left = pdf.l_margin
-        right = pdf.w - pdf.r_margin
-
-        pdf.set_fill_color(*PDFGenerator.ACCENT)
-        pdf.rect(left, y + 1, 2, 6.2, "F")
-
-        pdf.set_xy(left + 5, y)
-        pdf.set_font("helvetica", "B", 9.4)
-        pdf.set_text_color(*PDFGenerator.BLUE)
-        pdf.cell(0, 6, PDFGenerator._plain_text(title).upper())
-
-        pdf.set_draw_color(*PDFGenerator.LINE)
-        pdf.set_line_width(0.25)
-        pdf.line(left + 5, y + 7.6, right, y + 7.6)
-        pdf.ln(10)
-
-    @staticmethod
-    def _write_subheading(pdf: FPDF, text: str) -> None:
-        if not text:
-            return
-        PDFGenerator._ensure_space(pdf, 9)
-
-        pdf.set_font("helvetica", "B", 10.4)
-        pdf.set_text_color(*PDFGenerator.NAVY)
-        pdf.multi_cell(0, 5.4, text)
-        pdf.ln(0.7)
-
-    @staticmethod
-    def _write_paragraph(pdf: FPDF, text: str) -> None:
-        if not text:
-            return
-        PDFGenerator._ensure_space(pdf, 9)
-
-        pdf.set_font("helvetica", "", 10.1)
-        pdf.set_text_color(*PDFGenerator.TEXT)
-        pdf.multi_cell(0, 5.6, text)
-        pdf.ln(1.1)
-
-    @staticmethod
-    def _write_bullet(pdf: FPDF, text: str) -> None:
-        if not text:
-            return
-        PDFGenerator._ensure_space(pdf, 8)
-
-        left = pdf.l_margin
-        y = pdf.get_y()
-        pdf.set_fill_color(*PDFGenerator.ACCENT)
-        pdf.ellipse(left + 1.2, y + 2.1, 1.7, 1.7, "F")
-
-        pdf.set_xy(left + 6, y)
-        pdf.set_font("helvetica", "", 9.9)
-        pdf.set_text_color(*PDFGenerator.TEXT)
-        pdf.multi_cell(0, 5.35, text)
-        pdf.ln(0.6)
-
-    @staticmethod
-    def _ensure_space(pdf: FPDF, needed_height: float) -> None:
-        if pdf.get_y() + needed_height > pdf.h - pdf.b_margin:
-            pdf.add_page()
-            pdf.set_y(pdf.t_margin)
-
-    @staticmethod
-    def _plain_text(text: str) -> str:
-        text = PDFGenerator._normalize_symbols(text)
-        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
-        text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
-        text = re.sub(r"(\*|_)(.*?)\1", r"\2", text)
-        text = re.sub(r"`([^`]*)`", r"\1", text)
-        text = re.sub(r"<[^>]+>", "", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text.encode("latin-1", "ignore").decode("latin-1")
-
-    @staticmethod
-    def _normalize_symbols(text: str) -> str:
-        replacements = {
-            "\u00a0": " ",
-            "\u2013": "-",
-            "\u2014": "-",
-            "\u2018": "'",
-            "\u2019": "'",
-            "\u201c": '"',
-            "\u201d": '"',
-            "\u2022": "-",
-            "\u2026": "...",
-        }
-        for old, new in replacements.items():
-            text = text.replace(old, new)
+    def _md_to_html_inline(text: str) -> str:
+        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2" target="_blank">\1</a>', text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
+        text = re.sub(r"__(.+?)__", r"<strong>\1</strong>", text)
+        text = re.sub(r"_(.+?)_", r"<em>\1</em>", text)
+        text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
         return text
-
-    @staticmethod
-    def _initials(name: str) -> str:
-        words = [word for word in re.split(r"\s+", PDFGenerator._plain_text(name)) if word]
-        if not words:
-            return "CV"
-        if len(words) == 1:
-            return words[0][:2].upper()
-        return f"{words[0][0]}{words[-1][0]}".upper()
