@@ -15,6 +15,7 @@ class BlobStorage:
         self.access_key = os.getenv("MINIO_ROOT_USER", "")
         self.secret_key = os.getenv("MINIO_ROOT_PASSWORD", "")
         self.bucket_name = "resumes"
+        self.photo_bucket = "photos"
 
         if not self.access_key or not self.secret_key:
             logger.warning("MINIO_ROOT_USER/MINIO_ROOT_PASSWORD not set; using defaults.")
@@ -27,17 +28,18 @@ class BlobStorage:
             config=Config(signature_version='s3v4'),
             region_name='us-east-1'
         )
-        self._ensure_bucket()
+        self._ensure_bucket(self.bucket_name)
+        self._ensure_bucket(self.photo_bucket)
 
-    def _ensure_bucket(self):
+    def _ensure_bucket(self, bucket_name: str):
         try:
-            self.s3.head_bucket(Bucket=self.bucket_name)
+            self.s3.head_bucket(Bucket=bucket_name)
         except Exception:
             try:
-                self.s3.create_bucket(Bucket=self.bucket_name)
-                logger.info(f"Bucket '{self.bucket_name}' created.")
+                self.s3.create_bucket(Bucket=bucket_name)
+                logger.info(f"Bucket '{bucket_name}' created.")
             except Exception as e:
-                logger.error(f"Failed to create bucket: {e}")
+                logger.error(f"Failed to create bucket {bucket_name}: {e}")
 
     def save_pdf(self, file_name: str, content: bytes):
         if not _SAFE_KEY_PATTERN.match(file_name):
@@ -56,3 +58,31 @@ class BlobStorage:
             logger.info(f"File {file_name} saved to blob storage.")
         except Exception as e:
             logger.error(f"Failed to save file to blob storage: {e}")
+
+    def save_photo(self, file_name: str, content: bytes):
+        if not _SAFE_KEY_PATTERN.match(file_name):
+            logger.error(f"Rejected unsafe photo key: {file_name}")
+            return
+        content_type = 'image/jpeg'
+        if file_name.endswith('.png'):
+            content_type = 'image/png'
+        elif file_name.endswith('.webp'):
+            content_type = 'image/webp'
+        try:
+            self.s3.put_object(
+                Bucket=self.photo_bucket,
+                Key=file_name,
+                Body=content,
+                ContentType=content_type,
+            )
+            logger.info(f"Photo {file_name} saved to blob storage.")
+        except Exception as e:
+            logger.error(f"Failed to save photo to blob storage: {e}")
+
+    def get_photo(self, file_name: str) -> bytes | None:
+        try:
+            response = self.s3.get_object(Bucket=self.photo_bucket, Key=file_name)
+            return response['Body'].read()
+        except Exception as e:
+            logger.error(f"Failed to get photo from blob storage: {e}")
+            return None

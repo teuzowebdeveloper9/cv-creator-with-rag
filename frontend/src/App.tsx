@@ -105,6 +105,18 @@ interface DocumentRecord {
   created_at: string;
 }
 
+interface ProfileData {
+  full_name: string;
+  email: string;
+  phone: string;
+  linkedin: string;
+  github: string;
+  portfolio: string;
+  city: string;
+  summary: string;
+  photo_url: string;
+}
+
 // --- Main App Component ---
 
 function App() {
@@ -123,6 +135,12 @@ function App() {
   const [providerStatus, setProviderStatus] = useState<ProviderStatus>({});
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [downloading, setDownloading] = useState<boolean>(false);
+  const [showProfile, setShowProfile] = useState<boolean>(false);
+  const [profile, setProfile] = useState<ProfileData>({
+    full_name: '', email: '', phone: '', linkedin: '', github: '',
+    portfolio: '', city: '', summary: '', photo_url: ''
+  });
+  const [photoUploading, setPhotoUploading] = useState<boolean>(false);
   
   const [uploadQueue, setUploadQueue] = useState<UploadQueue>({
     active: false,
@@ -150,6 +168,53 @@ function App() {
       console.error("Erro ao buscar documentos:", error);
     }
   };
+
+  const fetchProfile = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/profile/`);
+      const data = response.data;
+      if (data.photo_url && data.photo_url.startsWith('/')) {
+        data.photo_url = `${API_BASE_URL}${data.photo_url}`;
+      }
+      setProfile(data);
+    } catch (error) {
+      console.error("Erro ao buscar perfil:", error);
+    }
+  };
+
+  const saveProfile = async () => {
+    try {
+      await axios.put(`${API_BASE_URL}/profile/`, profile);
+      setUploadStatus({ type: 'success', message: 'Perfil salvo com sucesso!' });
+    } catch (error) {
+      setUploadStatus({ type: 'error', message: 'Erro ao salvar perfil.' });
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPhotoUploading(true);
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/profile/photo/`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setProfile(prev => ({ ...prev, photo_url: `${API_BASE_URL}${response.data.photo_url}` }));
+      setUploadStatus({ type: 'success', message: 'Foto uploaded com sucesso!' });
+    } catch (error) {
+      setUploadStatus({ type: 'error', message: 'Erro ao upload foto.' });
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
 
   useEffect(() => {
     const fetchProviderStatus = async () => {
@@ -363,7 +428,10 @@ function App() {
       const response = await fetch(`${API_BASE_URL}/generate/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_description: jobDescription }),
+        body: JSON.stringify({ 
+          job_description: jobDescription,
+          profile_data: profile
+        }),
       });
       if (!response.ok) throw new Error('Falha na geração');
       if (!response.body) throw new Error('Corpo da resposta vazio');
@@ -448,6 +516,21 @@ function App() {
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-4"
         >
+          <button
+            onClick={() => setShowProfile(!showProfile)}
+            className="flex items-center gap-2 text-slate-600 hover:text-indigo-600 transition-all font-bold text-xs bg-white/50 px-5 py-3 rounded-2xl shadow-sm border border-white/60 backdrop-blur-sm group"
+          >
+            {profile.photo_url ? (
+              <img src={profile.photo_url} alt="Profile" className="w-5 h-5 rounded-full object-cover" />
+            ) : (
+              <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center">
+                <span className="text-[8px] font-bold text-indigo-600">
+                  {profile.full_name ? profile.full_name[0].toUpperCase() : 'U'}
+                </span>
+              </div>
+            )}
+            <span>{profile.full_name || 'Meu Perfil'}</span>
+          </button>
           <a 
             href="http://localhost:6333/dashboard" 
             target="_blank" 
@@ -460,6 +543,165 @@ function App() {
           </a>
         </motion.div>
       </header>
+
+      {/* Profile Modal */}
+      <AnimatePresence>
+        {showProfile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowProfile(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] shadow-2xl p-8 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-2xl font-black text-slate-800">Meu Perfil</h2>
+                <button onClick={() => setShowProfile(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Photo Upload */}
+              <div className="flex items-center gap-4 mb-8 p-4 bg-slate-50 rounded-2xl">
+                <div className="relative">
+                  {profile.photo_url ? (
+                    <img src={profile.photo_url} alt="Photo" className="w-20 h-20 rounded-2xl object-cover border-2 border-white shadow-md" />
+                  ) : (
+                    <div className="w-20 h-20 rounded-2xl bg-indigo-100 flex items-center justify-center">
+                      <span className="text-2xl font-bold text-indigo-600">
+                        {profile.full_name ? profile.full_name[0].toUpperCase() : 'U'}
+                      </span>
+                    </div>
+                  )}
+                  {photoUploading && (
+                    <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center">
+                      <Loader2 className="animate-spin text-white" size={20} />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block">
+                    <span className="text-sm font-bold text-slate-700 cursor-pointer hover:text-indigo-600 transition-colors">
+                      {profile.photo_url ? 'Trocar foto' : 'Adicionar foto'}
+                    </span>
+                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                  </label>
+                  <p className="text-[10px] text-slate-400 mt-1">JPG, PNG ou WEBP (max 5MB)</p>
+                </div>
+              </div>
+
+              {/* Profile Fields */}
+              <div className="space-y-5 mt-2">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Nome Completo</label>
+                  <input
+                    type="text"
+                    value={profile.full_name}
+                    onChange={(e) => setProfile(prev => ({ ...prev, full_name: e.target.value }))}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                    placeholder="João da Silva"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={profile.email}
+                      onChange={(e) => setProfile(prev => ({ ...prev, email: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                      placeholder="email@exemplo.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Telefone</label>
+                    <input
+                      type="tel"
+                      value={profile.phone}
+                      onChange={(e) => setProfile(prev => ({ ...prev, phone: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                      placeholder="(85) 99999-9999"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Cidade</label>
+                  <input
+                    type="text"
+                    value={profile.city}
+                    onChange={(e) => setProfile(prev => ({ ...prev, city: e.target.value }))}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                    placeholder="Fortaleza, CE"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">LinkedIn</label>
+                    <input
+                      type="url"
+                      value={profile.linkedin}
+                      onChange={(e) => setProfile(prev => ({ ...prev, linkedin: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                      placeholder="linkedin.com/in/..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">GitHub</label>
+                    <input
+                      type="url"
+                      value={profile.github}
+                      onChange={(e) => setProfile(prev => ({ ...prev, github: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                      placeholder="github.com/..."
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Portfolio</label>
+                  <input
+                    type="url"
+                    value={profile.portfolio}
+                    onChange={(e) => setProfile(prev => ({ ...prev, portfolio: e.target.value }))}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Resumo Profissional</label>
+                  <textarea
+                    value={profile.summary}
+                    onChange={(e) => setProfile(prev => ({ ...prev, summary: e.target.value }))}
+                    rows={3}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all resize-none"
+                    placeholder="Desenvolvedor Full Stack com X anos de experiência..."
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <Button onClick={() => setShowProfile(false)} variant="secondary" className="flex-1">
+                  Cancelar
+                </Button>
+                <Button onClick={saveProfile} variant="primary" className="flex-1">
+                  <Save size={16} /> Salvar Perfil
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="max-w-[1440px] mx-auto px-8 pb-32 grid grid-cols-1 lg:grid-cols-12 gap-10">
         
