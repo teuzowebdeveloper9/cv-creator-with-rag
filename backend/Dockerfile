@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     libffi-dev \
     libcairo2 \
     libglib2.0-0 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

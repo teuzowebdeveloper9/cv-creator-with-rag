@@ -1,10 +1,12 @@
 from django.urls import path
 from .views import (
     UploadView, GenerateView, ProviderStatusView, DocumentListView,
-    DownloadPDFView, UpdateCVView, UserProfileView, UploadPhotoView, ServePhotoView
+    DownloadPDFView, UpdateCVView, UserProfileView, UploadPhotoView, ServePhotoView,
+    HealthCheckView
 )
 
 urlpatterns = [
+    path('health/', HealthCheckView.as_view(), name='health'),
     path('upload/', UploadView.as_view(), name='upload'),
     path('generate/', GenerateView.as_view(), name='generate'),
     path('update-cv/', UpdateCVView.as_view(), name='update-cv'),

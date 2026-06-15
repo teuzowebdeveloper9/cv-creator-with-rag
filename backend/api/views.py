@@ -13,6 +13,11 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator, PDFGenerator, BlobStorage
 from ai_services.cv_markdown import CV_OUTPUT_RULES, sanitize_cv_markdown
 from .serializers import GenerateSerializer, DocumentSerializer, UpdateCVSerializer, UserProfileSerializer
+
+
+class HealthCheckView(APIView):
+    def get(self, request):
+        return Response({"status": "ok"}, status=status.HTTP_200_OK)
 from .tasks import process_document_task
 from .models import Document, UserProfile
 
