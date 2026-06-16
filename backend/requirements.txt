@@ -22,3 +22,6 @@ markdown
 boto3
 pytest-django
 pytest-mock
+langgraph
+elevenlabs
+duckduckgo-search

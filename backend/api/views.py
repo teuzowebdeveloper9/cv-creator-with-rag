@@ -384,6 +384,11 @@ class GenerateView(APIView):
 
         response = StreamingHttpResponse(stream_generator(), content_type='text/event-stream')
         response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response['Access-Control-Allow-Credentials'] = 'true'
         return response
 
 class UpdateCVView(APIView):
@@ -461,3 +466,241 @@ class UpdateCVView(APIView):
             return Response({"markdown": updated_cv}, status=status.HTTP_200_OK)
         except Exception as e:
             return _safe_error_response("CV update failed", e)
+
+
+from ai_services.interview import interview_orchestrator
+from ai_services.voice import elevenlabs_service
+from .serializers import (
+    InterviewSerializer, InterviewListSerializer, InterviewQuestionSerializer,
+    StartInterviewSerializer, SubmitAnswerSerializer, WeeklyFeedbackSerializer
+)
+from .models import Interview, InterviewQuestion, WeeklyFeedback
+
+
+class StartInterviewView(APIView):
+    def post(self, request):
+        serializer = StartInterviewSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        job_role = serializer.validated_data['job_role']
+        tech_stack = serializer.validated_data.get('tech_stack', '')
+        job_description = serializer.validated_data.get('job_description', '')
+
+        profile_context = ""
+        try:
+            profile, _ = UserProfile.objects.get_or_create(id=1)
+            profile_context = _format_profile_context({
+                "full_name": profile.full_name,
+                "email": profile.email,
+                "phone": profile.phone,
+                "summary": profile.summary,
+            })
+        except Exception:
+            pass
+
+        context = f"{profile_context}\n\nDescricao da Vaga:\n{job_description}" if job_description else profile_context
+
+        try:
+            questions = interview_orchestrator.generate_questions(job_role, tech_stack, context)
+        except Exception as e:
+            return _safe_error_response("Failed to generate questions", e)
+
+        interview = Interview.objects.create(
+            job_role=job_role,
+            tech_stack=tech_stack,
+            total_questions=len(questions),
+            current_question=0,
+        )
+
+        for i, q in enumerate(questions):
+            question_audio = None
+            if elevenlabs_service.is_available():
+                audio = elevenlabs_service.text_to_speech(q["question"])
+                if audio:
+                    import base64
+                    question_audio = "data:audio/mp3;base64," + base64.b64encode(audio).decode()
+
+            InterviewQuestion.objects.create(
+                interview=interview,
+                question_text=q["question"],
+                question_audio_url=question_audio or "",
+                order=i + 1,
+            )
+
+        interview.current_question = 1
+        interview.save()
+
+        return Response(InterviewSerializer(interview).data, status=status.HTTP_201_CREATED)
+
+
+class SubmitAnswerView(APIView):
+    def post(self, request):
+        serializer = SubmitAnswerSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        interview_id = serializer.validated_data['interview_id']
+        question_id = serializer.validated_data['question_id']
+        answer_text = serializer.validated_data.get('answer_text', '')
+
+        try:
+            interview = Interview.objects.get(id=interview_id)
+            question = InterviewQuestion.objects.get(id=question_id, interview=interview)
+        except (Interview.DoesNotExist, InterviewQuestion.DoesNotExist):
+            return Response({"error": "Interview or question not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        question.answer_text = answer_text
+
+        evaluation = interview_orchestrator.evaluate_answer(
+            question.question_text, answer_text, interview.job_role, interview.tech_stack
+        )
+
+        question.score = evaluation.get("score", 0)
+        question.feedback = evaluation.get("feedback", "")
+        question.strengths = json.dumps(evaluation.get("strengths", []))
+        question.improvements = json.dumps(evaluation.get("improvements", ""))
+        question.save()
+
+        interview_orchestrator.save_to_vector_store(interview.id, {
+            "question": question.question_text,
+            "answer": answer_text,
+            "score": question.score,
+            "order": question.order,
+        })
+
+        all_questions = interview.questions.all()
+        completed = all_questions.exclude(answer_text="").count()
+        avg_score = sum(q.score for q in all_questions if q.answer_text) / max(completed, 1)
+
+        interview.current_question = min(question.order + 1, interview.total_questions)
+        interview.average_score = avg_score
+
+        if completed >= interview.total_questions:
+            interview.status = 'COMPLETED'
+            interview.completed_at = datetime.datetime.now()
+
+        interview.save()
+
+        return Response({
+            "evaluation": {
+                "score": question.score,
+                "feedback": question.feedback,
+                "strengths": json.loads(question.strengths) if question.strengths else [],
+                "improvements": json.loads(question.improvements) if question.improvements else [],
+            },
+            "interview": InterviewSerializer(interview).data,
+        }, status=status.HTTP_200_OK)
+
+
+class InterviewDetailView(APIView):
+    def get(self, request, interview_id):
+        try:
+            interview = Interview.objects.get(id=interview_id)
+            return Response(InterviewSerializer(interview).data)
+        except Interview.DoesNotExist:
+            return Response({"error": "Interview not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+class InterviewListView(APIView):
+    def get(self, request):
+        interviews = Interview.objects.all()[:20]
+        return Response(InterviewListSerializer(interviews, many=True).data)
+
+
+class WeeklyFeedbackView(APIView):
+    def get(self, request):
+        now = datetime.datetime.now()
+        saturday = now + datetime.timedelta((5 - now.weekday()) % 7)
+        saturday = saturday.replace(hour=0, minute=0, second=0, microsecond=0)
+        unlock_time = saturday.timestamp()
+        current_time = now.timestamp()
+
+        is_unlocked = current_time >= unlock_time
+
+        feedback = WeeklyFeedback.objects.first()
+
+        return Response({
+            "is_unlocked": is_unlocked,
+            "unlock_time": unlock_time,
+            "current_time": current_time,
+            "feedback": WeeklyFeedbackSerializer(feedback).data if feedback else None,
+        })
+
+    def post(self, request):
+        now = datetime.datetime.now()
+        saturday = now + datetime.timedelta((5 - now.weekday()) % 7)
+        saturday = saturday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if now.timestamp() < saturday.timestamp():
+            return Response({"error": "Feedback not yet available"}, status=status.HTTP_403_FORBIDDEN)
+
+        week_start = saturday - datetime.timedelta(days=7)
+        interviews = Interview.objects.filter(
+            started_at__gte=week_start,
+            started_at__lt=saturday,
+            status='COMPLETED'
+        )
+
+        interview_data = []
+        for interview in interviews:
+            questions = interview.questions.all()
+            interview_data.append({
+                "job_role": interview.job_role,
+                "tech_stack": interview.tech_stack,
+                "average_score": interview.average_score,
+                "questions": [
+                    {
+                        "question": q.question_text,
+                        "answer": q.answer_text,
+                        "score": q.score,
+                        "feedback": q.feedback,
+                    }
+                    for q in questions
+                ]
+            })
+
+        if not interview_data:
+            return Response({"error": "No completed interviews this week"}, status=status.HTTP_400_BAD_REQUEST)
+
+        feedback = interview_orchestrator.generate_feedback(interview_data)
+
+        weekly_feedback = WeeklyFeedback.objects.create(
+            week_start=week_start.date(),
+            week_end=saturday.date(),
+            summary=feedback.get("summary", ""),
+            overall_score=feedback.get("overall_score", 0),
+            strengths=json.dumps(feedback.get("strengths", [])),
+            improvements=json.dumps(feedback.get("improvements", [])),
+            recommendations=json.dumps(feedback.get("recommendations", [])),
+            interviews_analyzed=len(interview_data),
+        )
+
+        return Response(WeeklyFeedbackSerializer(weekly_feedback).data, status=status.HTTP_201_CREATED)
+
+
+class VoiceTTTView(APIView):
+    def post(self, request):
+        text = request.data.get('text', '')
+        if not text:
+            return Response({"error": "No text provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        audio = elevenlabs_service.text_to_speech(text)
+        if audio:
+            import base64
+            audio_b64 = base64.b64encode(audio).decode()
+            return Response({"audio": f"data:audio/mp3;base64,{audio_b64}"})
+        return Response({"error": "TTS failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VoiceSTTView(APIView):
+    def post(self, request):
+        audio_file = request.FILES.get('audio')
+        if not audio_file:
+            return Response({"error": "No audio provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        audio_data = audio_file.read()
+        text = elevenlabs_service.speech_to_text(audio_data)
+        if text:
+            return Response({"text": text})
+        return Response({"text": "", "error": "STT unavailable - type your answer"}, status=status.HTTP_200_OK)
