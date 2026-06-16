@@ -388,6 +388,7 @@ class GenerateView(APIView):
         response['Access-Control-Allow-Origin'] = '*'
         response['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response['Access-Control-Allow-Credentials'] = 'true'
         return response
 
 class UpdateCVView(APIView):
