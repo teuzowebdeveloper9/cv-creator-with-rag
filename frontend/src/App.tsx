@@ -27,7 +27,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import RagCvLogo from './components/RagCvLogo';
 import InterviewPage from './components/InterviewPage';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = '/api';
 
 // --- Improved Shared Components ---
 

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Play, Pause, SkipForward, CheckCircle2, Clock, Star, MessageSquare, Volume2, AlertCircle, Sparkles } from 'lucide-react';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = '/api';
 
 interface Question {
   id: number;

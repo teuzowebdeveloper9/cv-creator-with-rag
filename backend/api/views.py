@@ -384,6 +384,10 @@ class GenerateView(APIView):
 
         response = StreamingHttpResponse(stream_generator(), content_type='text/event-stream')
         response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         return response
 
 class UpdateCVView(APIView):
