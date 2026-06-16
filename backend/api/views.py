@@ -703,4 +703,4 @@ class VoiceSTTView(APIView):
         text = elevenlabs_service.speech_to_text(audio_data)
         if text:
             return Response({"text": text})
-        return Response({"error": "STT failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({"text": "", "error": "STT unavailable - type your answer"}, status=status.HTTP_200_OK)

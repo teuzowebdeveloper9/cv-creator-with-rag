@@ -181,17 +181,20 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
         const sttResponse = await axios.post(`${API_BASE_URL}/voice/stt/`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        answerText = sttResponse.data.text || '';
-        setCurrentAnswer(answerText);
+        if (sttResponse.data.text) {
+          answerText = sttResponse.data.text;
+          setCurrentAnswer(answerText);
+        }
       } catch (error) {
         console.error('STT failed:', error);
-        setUploadStatus({ type: 'error', message: 'Falha ao transcrever áudio. Digite sua resposta.' });
-        setLoading(false);
-        return;
       }
+      setLoading(false);
     }
 
-    if (!answerText) return;
+    if (!answerText) {
+      alert('Digite sua resposta ou grave novamente.');
+      return;
+    }
 
     setLoading(true);
     try {
