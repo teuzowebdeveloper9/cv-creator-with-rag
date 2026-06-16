@@ -480,6 +480,7 @@ class StartInterviewView(APIView):
 
         job_role = serializer.validated_data['job_role']
         tech_stack = serializer.validated_data.get('tech_stack', '')
+        job_description = serializer.validated_data.get('job_description', '')
 
         profile_context = ""
         try:
@@ -493,8 +494,10 @@ class StartInterviewView(APIView):
         except Exception:
             pass
 
+        context = f"{profile_context}\n\nDescricao da Vaga:\n{job_description}" if job_description else profile_context
+
         try:
-            questions = interview_orchestrator.generate_questions(job_role, tech_stack, profile_context)
+            questions = interview_orchestrator.generate_questions(job_role, tech_stack, context)
         except Exception as e:
             return _safe_error_response("Failed to generate questions", e)
 

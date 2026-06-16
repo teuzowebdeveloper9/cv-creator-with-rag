@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Play, Pause, SkipForward, CheckCircle2, Clock, Star, MessageSquare, Volume2 } from 'lucide-react';
+import { Mic, MicOff, Play, Pause, SkipForward, CheckCircle2, Clock, Star, MessageSquare, Volume2, AlertCircle, Sparkles } from 'lucide-react';
 import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:8000/api';
@@ -40,7 +40,12 @@ interface WeeklyFeedback {
   } | null;
 }
 
-export default function InterviewPage() {
+interface InterviewPageProps {
+  jobDescription: string;
+  hasCV: boolean;
+}
+
+export default function InterviewPage({ jobDescription, hasCV }: InterviewPageProps) {
   const [jobRole, setJobRole] = useState('');
   const [techStack, setTechStack] = useState('');
   const [interview, setInterview] = useState<Interview | null>(null);
@@ -102,7 +107,8 @@ export default function InterviewPage() {
     try {
       const response = await axios.post(`${API_BASE_URL}/interview/start/`, {
         job_role: jobRole,
-        tech_stack: techStack,
+        tech_stack: techStack || jobDescription,
+        job_description: jobDescription,
       });
       setInterview(response.data);
       setEvaluation(null);
@@ -259,51 +265,76 @@ export default function InterviewPage() {
               Nova Entrevista
             </h2>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Cargo / Vaga
-                </label>
-                <input
-                  type="text"
-                  value={jobRole}
-                  onChange={(e) => setJobRole(e.target.value)}
-                  placeholder="Ex: Desenvolvedor Full Stack Senior"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                />
+            {!hasCV ? (
+              <div className="text-center py-8">
+                <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+                  <AlertCircle className="text-amber-600" size={32} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">
+                  Crie seu Currículo Primeiro
+                </h3>
+                <p className="text-slate-500 text-sm max-w-md mx-auto">
+                  Para iniciar uma entrevista técnica, primeiro crie seu currículo na aba "Currículo" usando a descrição da vaga.
+                  A entrevista será personalizada com base na vaga que você definiu.
+                </p>
               </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="text-indigo-600" size={16} />
+                    <span className="text-sm font-bold text-indigo-700">Vaga Detectada</span>
+                  </div>
+                  <p className="text-sm text-indigo-600 line-clamp-3">
+                    {jobDescription || 'Nenhuma descrição de vaga encontrada'}
+                  </p>
+                </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Stack Tecnológica
-                </label>
-                <input
-                  type="text"
-                  value={techStack}
-                  onChange={(e) => setTechStack(e.target.value)}
-                  placeholder="Ex: React, Node.js, PostgreSQL, AWS"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                />
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Cargo / Vaga
+                  </label>
+                  <input
+                    type="text"
+                    value={jobRole}
+                    onChange={(e) => setJobRole(e.target.value)}
+                    placeholder="Ex: Desenvolvedor Full Stack Senior"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Stack Tecnológica (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={techStack}
+                    onChange={(e) => setTechStack(e.target.value)}
+                    placeholder="Ex: React, Node.js, PostgreSQL, AWS"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                  />
+                </div>
+
+                <button
+                  onClick={startInterview}
+                  disabled={!jobRole.trim() || loading}
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-lg hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Gerando Perguntas...
+                    </>
+                  ) : (
+                    <>
+                      <Mic />
+                      Iniciar Entrevista
+                    </>
+                  )}
+                </button>
               </div>
-
-              <button
-                onClick={startInterview}
-                disabled={!jobRole.trim() || loading}
-                className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-lg hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Gerando Perguntas...
-                  </>
-                ) : (
-                  <>
-                    <Mic />
-                    Iniciar Entrevista
-                  </>
-                )}
-              </button>
-            </div>
+            )}
           </motion.div>
         )}
 

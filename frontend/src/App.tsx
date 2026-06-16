@@ -745,7 +745,7 @@ function App() {
 
       {/* Conditional Page Rendering */}
       {activePage === 'interview' ? (
-        <InterviewPage />
+        <InterviewPage jobDescription={jobDescription} hasCV={!!generatedCV} />
       ) : (
       <main className="max-w-[1440px] mx-auto px-8 pb-32 grid grid-cols-1 lg:grid-cols-12 gap-10">
         

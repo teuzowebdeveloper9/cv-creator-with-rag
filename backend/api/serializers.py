@@ -55,6 +55,7 @@ class WeeklyFeedbackSerializer(serializers.ModelSerializer):
 class StartInterviewSerializer(serializers.Serializer):
     job_role = serializers.CharField(required=True)
     tech_stack = serializers.CharField(required=False, allow_blank=True, default='')
+    job_description = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 class SubmitAnswerSerializer(serializers.Serializer):
