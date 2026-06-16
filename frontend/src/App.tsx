@@ -483,7 +483,8 @@ function App() {
         }
       }
     } catch (error) {
-      setUploadStatus({ type: 'error', message: 'Erro ao conectar com o serviço de IA.' });
+      const msg = error instanceof Error ? error.message : 'Erro desconhecido';
+      setUploadStatus({ type: 'error', message: `Erro ao conectar com o serviço de IA: ${msg}` });
     } finally {
       setLoading(false);
     }
