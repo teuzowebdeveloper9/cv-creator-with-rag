@@ -27,6 +27,13 @@ def test_extract_from_html(fixtures_path):
     assert "FastAPI" in text
     assert len(text) > 100
 
+def test_extract_from_html_applies_bounds():
+    content = b"<html><body><script>alert(1)</script><p>ABCDE</p><p>FGHIJ</p></body></html>"
+
+    text = DocumentProcessor.extract_from_html(content, max_bytes=1000, max_chars=6)
+
+    assert text == "ABCDE "
+
 def test_split_text():
     text = "A" * 2000
     chunks = DocumentProcessor.split_text(text, chunk_size=1000, overlap=200)
@@ -40,3 +47,12 @@ def test_split_text():
     assert len(chunks[0]) == 1000
     assert len(chunks[1]) == 1000
     assert len(chunks[2]) == 400
+
+def test_split_text_rejects_invalid_overlap():
+    with pytest.raises(ValueError):
+        DocumentProcessor.split_text("abc", chunk_size=100, overlap=100)
+
+def test_split_text_limits_number_of_chunks():
+    chunks = DocumentProcessor.split_text("A" * 5000, chunk_size=1000, overlap=0, max_chunks=2)
+
+    assert len(chunks) == 2

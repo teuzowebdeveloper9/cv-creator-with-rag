@@ -4,9 +4,12 @@ from ai_services import DocumentProcessor, QdrantVectorStore
 from .models import Document
 
 @shared_task
-def process_document_task(document_id, file_content_b64):
+def process_document_task(document_id, file_content_b64, user_id=None):
     try:
-        doc = Document.objects.get(id=document_id)
+        doc_query = Document.objects.filter(id=document_id)
+        if user_id is not None:
+            doc_query = doc_query.filter(owner_id=user_id)
+        doc = doc_query.get()
         doc.status = 'PROCESSING'
         doc.save()
 
@@ -40,6 +43,7 @@ def process_document_task(document_id, file_content_b64):
             {
                 "source": doc.name,
                 "document_id": doc.id,
+                "owner_user_id": doc.owner_id,
                 "document_name": doc.name,
                 "document_created_at": created_at,
                 "document_updated_at": updated_at,
@@ -52,7 +56,7 @@ def process_document_task(document_id, file_content_b64):
         
         doc.status = 'SUCCESS'
         doc.save()
-        return {"file": doc.name, "chunks": len(chunks)}
+        return {"file": doc.name, "chunks": len(chunks), "owner_user_id": doc.owner_id}
     except Exception as e:
         if 'doc' in locals():
             doc.status = 'FAILED'

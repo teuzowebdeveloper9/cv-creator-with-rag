@@ -1,7 +1,9 @@
+from django.conf import settings
 from django.db import models
 
 
 class UserProfile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
     full_name = models.CharField(max_length=255, blank=True, default="")
     email = models.EmailField(blank=True, default="")
     phone = models.CharField(max_length=50, blank=True, default="")
@@ -29,6 +31,7 @@ class Document(models.Model):
         ('SUCCESS', 'Success'),
         ('FAILED', 'Failed'),
     ]
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='documents')
     name = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     error_message = models.TextField(null=True, blank=True)
@@ -45,6 +48,7 @@ class Interview(models.Model):
         ('COMPLETED', 'Completed'),
         ('CANCELLED', 'Cancelled'),
     ]
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='interviews')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='IN_PROGRESS')
     job_role = models.CharField(max_length=255, blank=True, default="")
     tech_stack = models.CharField(max_length=500, blank=True, default="")
@@ -86,6 +90,7 @@ class InterviewQuestion(models.Model):
 
 
 class WeeklyFeedback(models.Model):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='weekly_feedbacks')
     week_start = models.DateField()
     week_end = models.DateField()
     summary = models.TextField(blank=True, default="")

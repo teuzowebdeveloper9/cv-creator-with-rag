@@ -3,11 +3,16 @@ from .views import (
     UploadView, GenerateView, ProviderStatusView, DocumentListView,
     DownloadPDFView, UpdateCVView, UserProfileView, UploadPhotoView, ServePhotoView,
     HealthCheckView, StartInterviewView, SubmitAnswerView, InterviewDetailView,
-    InterviewListView, WeeklyFeedbackView, VoiceTTTView, VoiceSTTView
+    InterviewListView, WeeklyFeedbackView, VoiceTTTView, VoiceSTTView,
+    LoginView, LogoutView, RegisterView, SessionView
 )
 
 urlpatterns = [
     path('health/', HealthCheckView.as_view(), name='health'),
+    path('auth/register/', RegisterView.as_view(), name='auth-register'),
+    path('auth/login/', LoginView.as_view(), name='auth-login'),
+    path('auth/logout/', LogoutView.as_view(), name='auth-logout'),
+    path('auth/session/', SessionView.as_view(), name='auth-session'),
     path('upload/', UploadView.as_view(), name='upload'),
     path('generate/', GenerateView.as_view(), name='generate'),
     path('update-cv/', UpdateCVView.as_view(), name='update-cv'),

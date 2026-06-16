@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import type { AxiosError } from 'axios';
 import { 
   Upload, 
   FileText, 
@@ -19,15 +20,85 @@ import {
   History,
   Download,
   LayoutDashboard,
-  ExternalLink,
   Info,
-  Mic
+  Mic,
+  LogOut,
+  UserPlus,
+  LogIn,
+  ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import RagCvLogo from './components/RagCvLogo';
 import InterviewPage from './components/InterviewPage';
 
 const API_BASE_URL = '/api';
+
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  withCredentials: true,
+  xsrfCookieName: 'csrftoken',
+  xsrfHeaderName: 'X-CSRFToken',
+});
+
+const authEndpointCandidates = {
+  session: ['/auth/session/', '/session/', '/users/session/'],
+  login: ['/auth/login/', '/login/', '/users/login/'],
+  register: ['/auth/register/', '/register/', '/users/register/'],
+  logout: ['/auth/logout/', '/logout/', '/users/logout/'],
+};
+
+interface AuthUser {
+  id?: number;
+  username?: string;
+  email?: string;
+  full_name?: string;
+}
+
+interface AuthState {
+  user: AuthUser | null;
+  checked: boolean;
+  loading: boolean;
+  error: string;
+}
+
+const extractErrorMessage = (error: unknown, fallback: string) => {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as Record<string, unknown> | undefined;
+    const directMessage = data?.detail || data?.error || data?.message;
+    if (typeof directMessage === 'string') return directMessage;
+    if (Array.isArray(data?.non_field_errors)) return data.non_field_errors.join(' ');
+    const fieldMessages = Object.values(data || {})
+      .flatMap(value => Array.isArray(value) ? value : typeof value === 'string' ? [value] : [])
+      .filter(Boolean);
+    return fieldMessages.join(' ') || fallback;
+  }
+  return error instanceof Error ? error.message : fallback;
+};
+
+const requestFirstAvailable = async <T,>(
+  endpoints: string[],
+  options: { method?: 'get' | 'post'; data?: unknown; allowNotFound?: boolean } = {},
+) => {
+  let notFound = false;
+  for (const endpoint of endpoints) {
+    try {
+      const method = options.method || 'get';
+      const response = method === 'post'
+        ? await apiClient.post<T>(endpoint, options.data || {})
+        : await apiClient.get<T>(endpoint);
+      return response.data;
+    } catch (error) {
+      const status = (error as AxiosError).response?.status;
+      if (status === 404) {
+        notFound = true;
+        continue;
+      }
+      throw error;
+    }
+  }
+  if (options.allowNotFound && notFound) return null;
+  throw new Error('A API de autenticação ainda não está disponível neste backend.');
+};
 
 // --- Improved Shared Components ---
 
@@ -51,6 +122,7 @@ const Card: React.FC<CardProps> = ({ children, className = "", hoverable = false
 interface ButtonProps {
   children: React.ReactNode;
   onClick?: () => void;
+  type?: "button" | "submit";
   disabled?: boolean;
   loading?: boolean;
   variant?: "primary" | "secondary" | "ghost" | "danger" | "success";
@@ -58,7 +130,7 @@ interface ButtonProps {
   size?: "sm" | "md" | "lg";
 }
 
-const Button: React.FC<ButtonProps> = ({ children, onClick, disabled, loading, variant = "primary", className = "", size = "md" }) => {
+const Button: React.FC<ButtonProps> = ({ children, onClick, type = "button", disabled, loading, variant = "primary", className = "", size = "md" }) => {
   const variants = {
     primary: "bg-indigo-600 text-white shadow-indigo-200 hover:bg-indigo-700 hover:shadow-indigo-300",
     secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-sm",
@@ -75,12 +147,134 @@ const Button: React.FC<ButtonProps> = ({ children, onClick, disabled, loading, v
 
   return (
     <button
+      type={type}
       onClick={onClick}
       disabled={disabled || loading}
       className={`interactive-button flex items-center justify-center font-bold tracking-tight shadow-md ${variants[variant]} ${sizes[size]} ${className}`}
     >
       {loading ? <Loader2 className="animate-spin" size={size === 'sm' ? 14 : 18} /> : children}
     </button>
+  );
+};
+
+interface AuthShellProps {
+  auth: AuthState;
+  onLogin: (email: string, password: string) => Promise<void>;
+  onRegister: (email: string, password: string, fullName: string) => Promise<void>;
+}
+
+const AuthShell: React.FC<AuthShellProps> = ({ auth, onLogin, onRegister }) => {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (mode === 'register') {
+      await onRegister(email.trim(), password, fullName.trim());
+      return;
+    }
+    await onLogin(email.trim(), password);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 px-4 py-8 selection:bg-indigo-100 selection:text-indigo-900">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col justify-center gap-8 lg:grid lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+        <section className="space-y-8">
+          <RagCvLogo size={52} showText />
+          <div className="max-w-2xl">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-white px-4 py-2 text-xs font-black uppercase text-indigo-600 shadow-sm">
+              <ShieldCheck size={16} />
+              Sessão protegida
+            </div>
+            <h1 className="text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
+              Entre para gerar CVs e treinar entrevistas com seu histórico salvo.
+            </h1>
+            <p className="mt-5 max-w-xl text-base font-medium leading-7 text-slate-500">
+              A sessão é recuperada no refresh e todas as chamadas da aplicação usam credenciais para manter seus documentos, perfil e entrevistas vinculados ao usuário autenticado.
+            </p>
+          </div>
+        </section>
+
+        <motion.form
+          onSubmit={submit}
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-[2rem] border border-white bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.12)] sm:p-8"
+        >
+          <div className="mb-6 flex rounded-2xl bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setMode('login')}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-black transition-all ${mode === 'login' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+            >
+              <LogIn size={16} />
+              Login
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('register')}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-black transition-all ${mode === 'register' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+            >
+              <UserPlus size={16} />
+              Cadastro
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {mode === 'register' && (
+              <div>
+                <label className="mb-2 block text-xs font-black uppercase text-slate-400">Nome</label>
+                <input
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                  placeholder="Seu nome"
+                  autoComplete="name"
+                />
+              </div>
+            )}
+            <div>
+              <label className="mb-2 block text-xs font-black uppercase text-slate-400">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                placeholder="voce@email.com"
+                autoComplete="email"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs font-black uppercase text-slate-400">Senha</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                placeholder="Minimo 8 caracteres"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                required
+              />
+            </div>
+          </div>
+
+          {auth.error && (
+            <div className="mt-5 flex gap-3 rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
+              <AlertCircle className="mt-0.5 shrink-0" size={18} />
+              <span>{auth.error}</span>
+            </div>
+          )}
+
+          <Button type="submit" loading={auth.loading} className="mt-6 w-full" size="lg">
+            {mode === 'register' ? <UserPlus size={18} /> : <LogIn size={18} />}
+            {mode === 'register' ? 'Criar conta' : 'Entrar'}
+          </Button>
+        </motion.form>
+      </div>
+    </div>
   );
 };
 
@@ -122,6 +316,7 @@ interface ProfileData {
 // --- Main App Component ---
 
 function App() {
+  const [auth, setAuth] = useState<AuthState>({ user: null, checked: false, loading: true, error: '' });
   const [files, setFiles] = useState<File[]>([]);
   const [jobDescription, setJobDescription] = useState<string>('');
   const [generatedCV, setGeneratedCV] = useState<string>('');
@@ -154,7 +349,77 @@ function App() {
     logs: []
   });
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const recoverSession = async () => {
+    setAuth(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      const data = await requestFirstAvailable<{ user?: AuthUser } | AuthUser | null>(
+        authEndpointCandidates.session,
+        { allowNotFound: true },
+      );
+      const user = data && 'user' in data ? data.user || null : data;
+      setAuth({ user: user || null, checked: true, loading: false, error: '' });
+    } catch (error) {
+      const status = (error as AxiosError).response?.status;
+      setAuth({
+        user: null,
+        checked: true,
+        loading: false,
+        error: status === 401 ? '' : extractErrorMessage(error, 'Não foi possível recuperar sua sessão.'),
+      });
+    }
+  };
+
+  const handleLogin = async (email: string, password: string) => {
+    setAuth(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      const data = await requestFirstAvailable<{ user?: AuthUser } | AuthUser>(authEndpointCandidates.login, {
+        method: 'post',
+        data: { email, username: email, password },
+      });
+      const user = data && 'user' in data ? data.user : data;
+      setAuth({ user: user || { email }, checked: true, loading: false, error: '' });
+    } catch (error) {
+      setAuth(prev => ({
+        ...prev,
+        loading: false,
+        error: extractErrorMessage(error, 'Não foi possível entrar. Verifique suas credenciais.'),
+      }));
+    }
+  };
+
+  const handleRegister = async (email: string, password: string, fullName: string) => {
+    setAuth(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      const data = await requestFirstAvailable<{ user?: AuthUser } | AuthUser>(authEndpointCandidates.register, {
+        method: 'post',
+        data: { email, username: email, password, full_name: fullName, name: fullName },
+      });
+      const user = data && 'user' in data ? data.user : data;
+      setAuth({ user: user || { email, full_name: fullName }, checked: true, loading: false, error: '' });
+    } catch (error) {
+      setAuth(prev => ({
+        ...prev,
+        loading: false,
+        error: extractErrorMessage(error, 'Não foi possível criar sua conta.'),
+      }));
+    }
+  };
+
+  const handleLogout = async () => {
+    setAuth(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      await requestFirstAvailable(authEndpointCandidates.logout, { method: 'post', allowNotFound: true });
+    } catch (error) {
+      console.error('Logout failed:', error);
+    } finally {
+      setAuth({ user: null, checked: true, loading: false, error: '' });
+      setGeneratedCV('');
+      setEditableCV('');
+      setPdfPreviewUrl('');
+      setDocuments([]);
+      setActivePage('cv');
+    }
+  };
 
   const addLog = (msg: string) => {
     setUploadQueue(prev => ({
@@ -165,16 +430,17 @@ function App() {
 
   const fetchDocuments = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/documents/`);
+      const response = await apiClient.get('/documents/');
       setDocuments(response.data);
     } catch (error) {
       console.error("Erro ao buscar documentos:", error);
+      setUploadStatus({ type: 'error', message: 'Não foi possível carregar o histórico de documentos.' });
     }
   };
 
   const fetchProfile = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/profile/`);
+      const response = await apiClient.get('/profile/');
       const data = response.data;
       if (data.photo_url) {
         if (data.photo_url.startsWith('http')) {
@@ -189,15 +455,16 @@ function App() {
       setProfile(data);
     } catch (error) {
       console.error("Erro ao buscar perfil:", error);
+      setUploadStatus({ type: 'error', message: 'Não foi possível carregar seu perfil.' });
     }
   };
 
   const saveProfile = async () => {
     try {
-      await axios.put(`${API_BASE_URL}/profile/`, profile);
+      await apiClient.put('/profile/', profile);
       setUploadStatus({ type: 'success', message: 'Perfil salvo com sucesso!' });
     } catch (error) {
-      setUploadStatus({ type: 'error', message: 'Erro ao salvar perfil.' });
+      setUploadStatus({ type: 'error', message: extractErrorMessage(error, 'Erro ao salvar perfil.') });
     }
   };
 
@@ -210,29 +477,36 @@ function App() {
     formData.append('photo', file);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/profile/photo/`, formData, {
+      const response = await apiClient.post('/profile/photo/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setProfile(prev => ({ ...prev, photo_url: response.data.photo_url }));
       setUploadStatus({ type: 'success', message: 'Foto uploaded com sucesso!' });
     } catch (error) {
-      setUploadStatus({ type: 'error', message: 'Erro ao upload foto.' });
+      setUploadStatus({ type: 'error', message: extractErrorMessage(error, 'Erro ao upload foto.') });
     } finally {
       setPhotoUploading(false);
     }
   };
 
   useEffect(() => {
-    fetchProfile();
+    recoverSession();
   }, []);
 
   useEffect(() => {
+    if (!auth.user) return;
+    fetchProfile();
+  }, [auth.user]);
+
+  useEffect(() => {
+    if (!auth.user) return;
     const fetchProviderStatus = async () => {
       try {
-        const response = await axios.get(`${API_BASE_URL}/providers-status/`);
+        const response = await apiClient.get('/providers-status/');
         setProviderStatus(response.data);
       } catch (error) {
         console.error("Erro ao buscar status dos provedores:", error);
+        setUploadStatus({ type: 'error', message: 'Não foi possível carregar o status dos provedores.' });
       }
     };
     fetchProviderStatus();
@@ -242,7 +516,7 @@ function App() {
       fetchDocuments();
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [auth.user]);
 
   useEffect(() => {
     return () => {
@@ -255,6 +529,7 @@ function App() {
   const createPDFBlobUrl = async (markdown: string): Promise<string> => {
     const response = await fetch(`${API_BASE_URL}/download-pdf/`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },
@@ -344,6 +619,7 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/update-cv/`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           current_cv: markdown,
@@ -404,7 +680,7 @@ function App() {
       const formData = new FormData();
       formData.append('files', file);
       try {
-        await axios.post(`${API_BASE_URL}/upload/`, formData);
+        await apiClient.post('/upload/', formData);
         successCount++;
         setUploadQueue(prev => ({ ...prev, success: successCount }));
       } catch (error) {
@@ -437,6 +713,7 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/generate/`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           job_description: jobDescription,
@@ -489,6 +766,19 @@ function App() {
       setLoading(false);
     }
   };
+
+  if (!auth.checked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">
+        <Loader2 className="mr-3 animate-spin text-indigo-600" />
+        <span className="text-sm font-black uppercase tracking-widest">Recuperando sessão</span>
+      </div>
+    );
+  }
+
+  if (!auth.user) {
+    return <AuthShell auth={auth} onLogin={handleLogin} onRegister={handleRegister} />;
+  }
 
   return (
     <div className="min-h-screen selection:bg-indigo-100 selection:text-indigo-900">
@@ -557,6 +847,12 @@ function App() {
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-4"
         >
+          <div className="hidden text-right sm:block">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sessão</p>
+            <p className="max-w-[180px] truncate text-xs font-bold text-slate-700">
+              {auth.user.full_name || auth.user.email || auth.user.username || 'Usuário autenticado'}
+            </p>
+          </div>
           <button
             onClick={() => setShowProfile(!showProfile)}
             className="flex items-center gap-2 text-slate-600 hover:text-indigo-600 transition-all font-bold text-xs bg-white/50 px-5 py-3 rounded-2xl shadow-sm border border-white/60 backdrop-blur-sm group"
@@ -572,16 +868,14 @@ function App() {
             )}
             <span>{profile.full_name || 'Meu Perfil'}</span>
           </button>
-          <a 
-            href="http://localhost:6333/dashboard" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="hidden sm:flex items-center gap-2 text-slate-600 hover:text-indigo-600 transition-all font-bold text-xs bg-white/50 px-5 py-3 rounded-2xl shadow-sm border border-white/60 backdrop-blur-sm group"
+          <button
+            onClick={handleLogout}
+            disabled={auth.loading}
+            className="flex items-center gap-2 text-slate-600 hover:text-rose-600 transition-all font-bold text-xs bg-white/50 px-4 py-3 rounded-2xl shadow-sm border border-white/60 backdrop-blur-sm disabled:opacity-50"
           >
-            <Database size={14} className="group-hover:rotate-12 transition-transform" />
-            <span>Qdrant Dashboard</span>
-            <ExternalLink size={12} className="opacity-40" />
-          </a>
+            {auth.loading ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />}
+            <span className="hidden sm:inline">Sair</span>
+          </button>
         </motion.div>
       </header>
 
@@ -746,7 +1040,7 @@ function App() {
 
       {/* Conditional Page Rendering */}
       {activePage === 'interview' ? (
-        <InterviewPage jobDescription={jobDescription} hasCV={!!generatedCV} />
+        <InterviewPage jobDescription={jobDescription} hasCV={!!generatedCV} apiClient={apiClient} />
       ) : (
       <main className="max-w-[1440px] mx-auto px-8 pb-32 grid grid-cols-1 lg:grid-cols-12 gap-10">
         
