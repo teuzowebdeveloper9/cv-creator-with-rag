@@ -5,17 +5,27 @@ import base64
 import datetime
 import json
 
+from django.contrib.auth import login, logout
+from django.middleware.csrf import get_token
 from django.http import StreamingHttpResponse, HttpResponse
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, generics
+from rest_framework import status, generics, permissions
 from rest_framework.parsers import MultiPartParser, FormParser
 from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator, PDFGenerator, BlobStorage
 from ai_services.cv_markdown import CV_OUTPUT_RULES, sanitize_cv_markdown
-from .serializers import GenerateSerializer, DocumentSerializer, UpdateCVSerializer, UserProfileSerializer
+from .serializers import (
+    GenerateSerializer, DocumentSerializer, UpdateCVSerializer, UserProfileSerializer,
+    LoginSerializer, RegisterSerializer
+)
 
 
 class HealthCheckView(APIView):
+    permission_classes = [permissions.AllowAny]
+
     def get(self, request):
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 from .tasks import process_document_task
@@ -81,17 +91,78 @@ def _format_profile_context(profile: dict) -> str:
     return "\n".join(parts)
 
 
+def _user_payload(user):
+    return {
+        "id": user.id,
+        "email": user.email or user.username,
+        "username": user.username,
+        "full_name": user.get_full_name(),
+    }
+
+
+class RegisterView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        user = serializer.save()
+        login(request, user)
+        return Response(
+            {"authenticated": True, "user": _user_payload(user), "csrf_token": get_token(request)},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class LoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data, context={"request": request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        user = serializer.validated_data["user"]
+        login(request, user)
+        return Response({"authenticated": True, "user": _user_payload(user), "csrf_token": get_token(request)})
+
+
+class LogoutView(APIView):
+    def post(self, request):
+        logout(request)
+        return Response({"authenticated": False})
+
+
+@method_decorator(ensure_csrf_cookie, name='dispatch')
+class SessionView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        user = request.user
+        return Response({
+            "authenticated": bool(user and user.is_authenticated),
+            "user": _user_payload(user) if user and user.is_authenticated else None,
+            "csrf_token": get_token(request),
+        })
+
+
 class UserProfileView(APIView):
     def get(self, request):
-        profile, _ = UserProfile.objects.get_or_create(id=1)
+        profile, _ = UserProfile.objects.get_or_create(
+            user=request.user,
+            defaults={"email": request.user.email or request.user.username},
+        )
         serializer = UserProfileSerializer(profile)
         return Response(serializer.data)
 
     def put(self, request):
-        profile, _ = UserProfile.objects.get_or_create(id=1)
+        profile, _ = UserProfile.objects.get_or_create(
+            user=request.user,
+            defaults={"email": request.user.email or request.user.username},
+        )
         serializer = UserProfileSerializer(profile, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(user=request.user)
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -114,13 +185,16 @@ class UploadPhotoView(APIView):
         try:
             storage = BlobStorage()
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_name = f"profile_{timestamp}{ext}"
+            file_name = f"profile_{request.user.id}_{timestamp}{ext}"
             photo_bytes = photo.read()
             storage.save_photo(file_name, photo_bytes)
 
             photo_url = file_name
 
-            profile, _ = UserProfile.objects.get_or_create(id=1)
+            profile, _ = UserProfile.objects.get_or_create(
+                user=request.user,
+                defaults={"email": request.user.email or request.user.username},
+            )
             profile.photo_url = photo_url
             profile.save()
 
@@ -131,6 +205,8 @@ class UploadPhotoView(APIView):
 
 class ServePhotoView(APIView):
     def get(self, request, filename):
+        if not filename.startswith(f"profile_{request.user.id}_"):
+            return Response({"error": "Photo not found"}, status=status.HTTP_404_NOT_FOUND)
         try:
             storage = BlobStorage()
             photo_bytes = storage.get_photo(filename)
@@ -157,6 +233,8 @@ class DownloadPDFView(APIView):
         photo_url = request.data.get('photo_url', '')
         if not md_content:
             return Response({"error": "Nenhum conteúdo fornecido"}, status=status.HTTP_400_BAD_REQUEST)
+        if not _is_user_photo_reference(photo_url, request.user.id):
+            return Response({"error": "Foto não encontrada"}, status=status.HTTP_404_NOT_FOUND)
 
         try:
             pdf_bytes = PDFGenerator.generate(md_content, photo_url)
@@ -209,8 +287,8 @@ class UploadView(APIView):
             content = file.read()
             content_b64 = base64.b64encode(content).decode('utf-8')
 
-            doc = Document.objects.create(name=file.name, status='PENDING')
-            process_document_task.delay(doc.id, content_b64)
+            doc = Document.objects.create(owner=request.user, name=file.name, status='PENDING')
+            process_document_task.delay(doc.id, content_b64, request.user.id)
             created_docs.append(doc.id)
 
         response_data = {
@@ -224,8 +302,10 @@ class UploadView(APIView):
         return Response(response_data, status=status.HTTP_202_ACCEPTED)
 
 class DocumentListView(generics.ListAPIView):
-    queryset = Document.objects.all().order_by('-created_at')
     serializer_class = DocumentSerializer
+
+    def get_queryset(self):
+        return Document.objects.filter(owner=self.request.user).order_by('-created_at')
 
 def _collect_llm_response(orchestrator, prompt: str, system_prompt: str) -> str:
     return "".join(chunk for chunk in orchestrator.stream(prompt, system_prompt) if chunk)
@@ -256,6 +336,31 @@ def _format_context_fragments(fragments):
 
     return "\n\n---\n\n".join(blocks)
 
+
+def _filter_user_fragments(fragments, user_id):
+    filtered = []
+    for fragment in fragments:
+        owner_user_id = fragment.get("owner_user_id")
+        if owner_user_id in (None, ""):
+            # TODO: Remove this legacy fallback after Qdrant is fully reindexed with owner_user_id metadata.
+            document_id = fragment.get("document_id")
+            if document_id and not Document.objects.filter(id=document_id, owner_id=user_id).exists():
+                continue
+            if not document_id:
+                continue
+        elif str(owner_user_id) != str(user_id):
+            continue
+        filtered.append(fragment)
+    return filtered
+
+
+def _is_user_photo_reference(photo_url: str, user_id: int) -> bool:
+    if not photo_url:
+        return True
+    filename = os.path.basename(photo_url)
+    return filename.startswith(f"profile_{user_id}_")
+
+
 class GenerateView(APIView):
     def post(self, request):
         serializer = GenerateSerializer(data=request.data)
@@ -264,6 +369,8 @@ class GenerateView(APIView):
 
         job_description = _sanitize_input(serializer.validated_data['job_description'])
         profile_data = serializer.validated_data.get('profile_data', {})
+        if profile_data and not _is_user_photo_reference(str(profile_data.get("photo_url", "")), request.user.id):
+            return Response({"error": "Foto não encontrada"}, status=status.HTTP_404_NOT_FOUND)
 
         if _has_prompt_injection(job_description):
             return Response(
@@ -302,6 +409,7 @@ class GenerateView(APIView):
                     limit=cat_limit,
                     max_per_source=2,
                 )
+                fragments = _filter_user_fragments(fragments, request.user.id)
                 for frag in fragments:
                     text_key = frag.get("text", "")[:100]
                     if text_key not in seen_texts:
@@ -426,6 +534,7 @@ class UpdateCVView(APIView):
                     limit=12,
                     max_per_source=2,
                 )
+                context_fragments = _filter_user_fragments(context_fragments, request.user.id)
                 context_text = _format_context_fragments(context_fragments)
         except Exception as e:
             logger.warning(f"Failed to load vector context for CV update: {e}")
@@ -489,7 +598,10 @@ class StartInterviewView(APIView):
 
         profile_context = ""
         try:
-            profile, _ = UserProfile.objects.get_or_create(id=1)
+            profile, _ = UserProfile.objects.get_or_create(
+                user=request.user,
+                defaults={"email": request.user.email or request.user.username},
+            )
             profile_context = _format_profile_context({
                 "full_name": profile.full_name,
                 "email": profile.email,
@@ -507,6 +619,7 @@ class StartInterviewView(APIView):
             return _safe_error_response("Failed to generate questions", e)
 
         interview = Interview.objects.create(
+            owner=request.user,
             job_role=job_role,
             tech_stack=tech_stack,
             total_questions=len(questions),
@@ -545,7 +658,7 @@ class SubmitAnswerView(APIView):
         answer_text = serializer.validated_data.get('answer_text', '')
 
         try:
-            interview = Interview.objects.get(id=interview_id)
+            interview = Interview.objects.get(id=interview_id, owner=request.user)
             question = InterviewQuestion.objects.get(id=question_id, interview=interview)
         except (Interview.DoesNotExist, InterviewQuestion.DoesNotExist):
             return Response({"error": "Interview or question not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -563,6 +676,7 @@ class SubmitAnswerView(APIView):
         question.save()
 
         interview_orchestrator.save_to_vector_store(interview.id, {
+            "owner_user_id": request.user.id,
             "question": question.question_text,
             "answer": answer_text,
             "score": question.score,
@@ -578,7 +692,7 @@ class SubmitAnswerView(APIView):
 
         if completed >= interview.total_questions:
             interview.status = 'COMPLETED'
-            interview.completed_at = datetime.datetime.now()
+            interview.completed_at = timezone.now()
 
         interview.save()
 
@@ -596,7 +710,7 @@ class SubmitAnswerView(APIView):
 class InterviewDetailView(APIView):
     def get(self, request, interview_id):
         try:
-            interview = Interview.objects.get(id=interview_id)
+            interview = Interview.objects.get(id=interview_id, owner=request.user)
             return Response(InterviewSerializer(interview).data)
         except Interview.DoesNotExist:
             return Response({"error": "Interview not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -604,7 +718,7 @@ class InterviewDetailView(APIView):
 
 class InterviewListView(APIView):
     def get(self, request):
-        interviews = Interview.objects.all()[:20]
+        interviews = Interview.objects.filter(owner=request.user)[:20]
         return Response(InterviewListSerializer(interviews, many=True).data)
 
 
@@ -618,7 +732,7 @@ class WeeklyFeedbackView(APIView):
 
         is_unlocked = current_time >= unlock_time
 
-        feedback = WeeklyFeedback.objects.first()
+        feedback = WeeklyFeedback.objects.filter(owner=request.user).first()
 
         return Response({
             "is_unlocked": is_unlocked,
@@ -637,6 +751,7 @@ class WeeklyFeedbackView(APIView):
 
         week_start = saturday - datetime.timedelta(days=7)
         interviews = Interview.objects.filter(
+            owner=request.user,
             started_at__gte=week_start,
             started_at__lt=saturday,
             status='COMPLETED'
@@ -666,6 +781,7 @@ class WeeklyFeedbackView(APIView):
         feedback = interview_orchestrator.generate_feedback(interview_data)
 
         weekly_feedback = WeeklyFeedback.objects.create(
+            owner=request.user,
             week_start=week_start.date(),
             week_end=saturday.date(),
             summary=feedback.get("summary", ""),

@@ -16,9 +16,24 @@ class LLMProvider(ABC):
 
 class VectorStore(ABC):
     @abstractmethod
-    def upsert(self, collection_name: str, texts: List[str], metadatas: List[Dict[str, Any]]):
+    def upsert(
+        self,
+        collection_name: str,
+        texts: List[str],
+        metadatas: List[Dict[str, Any]],
+        user_id: Any = None,
+        tenant_id: Any = None,
+    ):
         pass
 
     @abstractmethod
-    def search(self, collection_name: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def search(
+        self,
+        collection_name: str,
+        query: str,
+        limit: int = 5,
+        max_per_source: int = 1,
+        user_id: Any = None,
+        tenant_id: Any = None,
+    ) -> List[Dict[str, Any]]:
         pass

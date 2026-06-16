@@ -4,7 +4,7 @@ import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 from sentence_transformers import SentenceTransformer
 from .interfaces import VectorStore
 from typing import List, Dict, Any
@@ -34,24 +34,50 @@ class QdrantVectorStore(VectorStore):
                 vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE),
             )
 
-    def upsert(self, collection_name: str, texts: List[str], metadatas: List[Dict[str, Any]]):
+    def upsert(
+        self,
+        collection_name: str,
+        texts: List[str],
+        metadatas: List[Dict[str, Any]],
+        user_id: Any = None,
+        tenant_id: Any = None,
+    ):
         self._ensure_collection(collection_name)
         embeddings = self.encoder.encode(texts)
-        
+        payloads = [
+            self._build_payload(texts[i], metadatas[i], user_id=user_id, tenant_id=tenant_id)
+            for i in range(len(texts))
+        ]
+
         points = [
             PointStruct(
-                id=self._build_point_id(collection_name, texts[i], metadatas[i], i),
+                id=self._build_point_id(
+                    collection_name,
+                    texts[i],
+                    payloads[i],
+                    i,
+                ),
                 vector=embeddings[i].tolist(),
-                payload={"text": texts[i], **metadatas[i]}
+                payload=payloads[i],
             ) for i in range(len(texts))
         ]
-        
+
         self.client.upsert(collection_name=collection_name, points=points)
 
-    def search(self, collection_name: str, query: str, limit: int = 5, max_per_source: int = 1) -> List[Dict[str, Any]]:
+    def search(
+        self,
+        collection_name: str,
+        query: str,
+        limit: int = 5,
+        max_per_source: int = 1,
+        user_id: Any = None,
+        tenant_id: Any = None,
+        query_filter: Filter | None = None,
+    ) -> List[Dict[str, Any]]:
         self._ensure_collection(collection_name)
         candidate_limit = max(limit * 6, 20)
         queries = self._build_query_variants(query)
+        scoped_filter = self._build_query_filter(user_id=user_id, tenant_id=tenant_id, query_filter=query_filter)
         merged: Dict[str, Dict[str, Any]] = {}
 
         for query_index, query_variant in enumerate(queries):
@@ -59,6 +85,7 @@ class QdrantVectorStore(VectorStore):
             results = self.client.query_points(
                 collection_name=collection_name,
                 query=query_vector,
+                query_filter=scoped_filter,
                 limit=candidate_limit
             ).points
 
@@ -116,6 +143,8 @@ class QdrantVectorStore(VectorStore):
     def _build_point_id(self, collection_name: str, text: str, metadata: Dict[str, Any], index: int) -> int:
         material = "|".join([
             collection_name,
+            str(metadata.get("tenant_id", "")),
+            str(metadata.get("user_id", "")),
             str(metadata.get("document_id", "")),
             str(metadata.get("source", "")),
             str(metadata.get("chunk_index", index)),
@@ -123,6 +152,59 @@ class QdrantVectorStore(VectorStore):
         ])
         digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
         return int(digest[:16], 16)
+
+    def _build_payload(
+        self,
+        text: str,
+        metadata: Dict[str, Any],
+        user_id: Any = None,
+        tenant_id: Any = None,
+    ) -> Dict[str, Any]:
+        payload = {"text": text, **(metadata or {})}
+        if user_id is not None and self._normalize_scope_value(user_id):
+            payload["user_id"] = self._normalize_scope_value(user_id)
+        elif payload.get("user_id") is not None:
+            payload["user_id"] = self._normalize_scope_value(payload["user_id"])
+
+        if tenant_id is not None and self._normalize_scope_value(tenant_id):
+            payload["tenant_id"] = self._normalize_scope_value(tenant_id)
+        elif payload.get("tenant_id") is not None:
+            payload["tenant_id"] = self._normalize_scope_value(payload["tenant_id"])
+
+        return payload
+
+    def _build_query_filter(
+        self,
+        user_id: Any = None,
+        tenant_id: Any = None,
+        query_filter: Filter | None = None,
+    ) -> Filter | None:
+        scope_conditions = []
+        normalized_user_id = self._normalize_scope_value(user_id) if user_id is not None else ""
+        normalized_tenant_id = self._normalize_scope_value(tenant_id) if tenant_id is not None else ""
+        if normalized_user_id:
+            scope_conditions.append(
+                FieldCondition(key="user_id", match=MatchValue(value=normalized_user_id))
+            )
+        if normalized_tenant_id:
+            scope_conditions.append(
+                FieldCondition(key="tenant_id", match=MatchValue(value=normalized_tenant_id))
+            )
+
+        if not scope_conditions:
+            return query_filter
+        if query_filter is None:
+            return Filter(must=scope_conditions)
+
+        filter_kwargs = {"must": list(getattr(query_filter, "must", None) or []) + scope_conditions}
+        for attr in ("should", "must_not", "min_should"):
+            value = getattr(query_filter, attr, None)
+            if value is not None:
+                filter_kwargs[attr] = value
+        return Filter(**filter_kwargs)
+
+    def _normalize_scope_value(self, value: Any) -> str:
+        return str(value).strip()
 
     def _build_query_variants(self, query: str) -> List[str]:
         normalized = " ".join(query.split())
@@ -146,6 +228,8 @@ class QdrantVectorStore(VectorStore):
 
     def _result_key(self, payload: Dict[str, Any]) -> str:
         return "|".join([
+            str(payload.get("tenant_id", "")),
+            str(payload.get("user_id", "")),
             str(payload.get("document_id", "")),
             str(payload.get("source", "")),
             str(payload.get("chunk_index", "")),
@@ -161,6 +245,7 @@ class QdrantVectorStore(VectorStore):
         has_chunk_index = 0
         has_document_id = 0
         has_created_at = 0
+        has_user_id = 0
 
         if sample_size > 0:
             result, _ = self.client.scroll(
@@ -176,6 +261,8 @@ class QdrantVectorStore(VectorStore):
                     has_document_id += 1
                 if payload.get("document_created_at"):
                     has_created_at += 1
+                if payload.get("user_id"):
+                    has_user_id += 1
 
         return {
             "total_points": total,
@@ -183,11 +270,16 @@ class QdrantVectorStore(VectorStore):
             "has_chunk_index": has_chunk_index,
             "has_document_id": has_document_id,
             "has_created_at": has_created_at,
+            "has_user_id": has_user_id,
             "metadata_quality": "good" if has_chunk_index == sample_size else "incomplete",
         }
 
     def _source_key(self, payload: Dict[str, Any]) -> str:
-        return str(payload.get("document_id") or payload.get("source") or self._result_key(payload))
+        return "|".join([
+            str(payload.get("tenant_id", "")),
+            str(payload.get("user_id", "")),
+            str(payload.get("document_id") or payload.get("source") or self._result_key(payload)),
+        ])
 
     def _lexical_overlap_score(self, query: str, text: str) -> float:
         query_terms = set(self._extract_keywords(query))

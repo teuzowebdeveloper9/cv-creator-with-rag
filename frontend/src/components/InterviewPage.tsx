@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Play, Pause, SkipForward, CheckCircle2, Clock, Star, MessageSquare, Volume2, AlertCircle, Sparkles } from 'lucide-react';
-import axios from 'axios';
-
-const API_BASE_URL = '/api';
+import { Mic, MicOff, Play, Pause, SkipForward, CheckCircle2, Clock, MessageSquare, Volume2, AlertCircle, Sparkles } from 'lucide-react';
+import type { AxiosInstance } from 'axios';
 
 interface Question {
   id: number;
@@ -43,9 +41,10 @@ interface WeeklyFeedback {
 interface InterviewPageProps {
   jobDescription: string;
   hasCV: boolean;
+  apiClient: AxiosInstance;
 }
 
-export default function InterviewPage({ jobDescription, hasCV }: InterviewPageProps) {
+export default function InterviewPage({ jobDescription, hasCV, apiClient }: InterviewPageProps) {
   const [jobRole, setJobRole] = useState('');
   const [techStack, setTechStack] = useState('');
   const [interview, setInterview] = useState<Interview | null>(null);
@@ -59,15 +58,50 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
   const [countdown, setCountdown] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recordingStatus, setRecordingStatus] = useState('Clique em gravar para responder por voz.');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [sttNotice, setSttNotice] = useState('');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const revokeAudioURL = useCallback((url: string | null) => {
+    if (url) URL.revokeObjectURL(url);
+  }, []);
+
+  const resetAnswerMedia = useCallback(() => {
+    setAudioURL(prev => {
+      revokeAudioURL(prev);
+      return null;
+    });
+    setRecordingSeconds(0);
+    setRecordingStatus('Clique em gravar para responder por voz.');
+    setSttNotice('');
+  }, [revokeAudioURL]);
+
+  const stopTracks = useCallback(() => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+  }, []);
 
   useEffect(() => {
     fetchWeeklyFeedback();
     const interval = setInterval(fetchWeeklyFeedback, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      stopTracks();
+      revokeAudioURL(audioURL);
+      currentAudio?.pause();
+    };
   }, []);
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const interval = setInterval(() => setRecordingSeconds(prev => prev + 1), 1000);
+    return () => clearInterval(interval);
+  }, [isRecording]);
 
   useEffect(() => {
     if (!weeklyFeedback || weeklyFeedback.is_unlocked) return;
@@ -94,7 +128,7 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
 
   const fetchWeeklyFeedback = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/interview/feedback/`);
+      const response = await apiClient.get('/interview/feedback/');
       setWeeklyFeedback(response.data);
     } catch (error) {
       console.error('Failed to fetch feedback:', error);
@@ -104,8 +138,9 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
   const startInterview = async () => {
     if (!jobRole.trim()) return;
     setLoading(true);
+    setErrorMessage('');
     try {
-      const response = await axios.post(`${API_BASE_URL}/interview/start/`, {
+      const response = await apiClient.post('/interview/start/', {
         job_role: jobRole,
         tech_stack: techStack || jobDescription,
         job_description: jobDescription,
@@ -115,33 +150,49 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
       setShowEvaluation(false);
     } catch (error) {
       console.error('Failed to start interview:', error);
+      setErrorMessage('Não foi possível iniciar a entrevista. Tente novamente em instantes.');
     } finally {
       setLoading(false);
     }
   };
 
   const startRecording = async () => {
+    if (isRecording) return;
+    setErrorMessage('');
+    setSttNotice('');
+    setRecordingSeconds(0);
+    setRecordingStatus('Solicitando acesso ao microfone...');
+    setAudioURL(prev => {
+      revokeAudioURL(prev);
+      return null;
+    });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
+      streamRef.current = stream;
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        audioChunksRef.current.push(event.data);
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const url = URL.createObjectURL(audioBlob);
         setAudioURL(url);
-        stream.getTracks().forEach(track => track.stop());
+        setRecordingStatus('Gravação pronta. Você pode ouvir, enviar ou gravar novamente.');
+        stopTracks();
       };
 
       mediaRecorder.start();
       setIsRecording(true);
+      setRecordingStatus('Gravando sua resposta...');
     } catch (error) {
       console.error('Failed to start recording:', error);
+      setRecordingStatus('Microfone indisponível. Digite sua resposta no campo de texto.');
+      setErrorMessage('Não foi possível acessar o microfone. Confira a permissão do navegador ou use a resposta digitada.');
+      stopTracks();
     }
   };
 
@@ -149,6 +200,7 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      setRecordingStatus('Processando gravação...');
     }
   };
 
@@ -174,31 +226,36 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
 
     if (!answerText && audioURL) {
       setLoading(true);
+      setSttNotice('Transcrevendo áudio antes da avaliação...');
+      setErrorMessage('');
       try {
         const audioBlob = await fetch(audioURL).then(r => r.blob());
         const formData = new FormData();
         formData.append('audio', audioBlob, 'answer.webm');
-        const sttResponse = await axios.post(`${API_BASE_URL}/voice/stt/`, formData, {
+        const sttResponse = await apiClient.post('/voice/stt/', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
         if (sttResponse.data.text) {
           answerText = sttResponse.data.text;
           setCurrentAnswer(answerText);
+          setSttNotice('Transcrição aplicada. Revise o texto e envie quando estiver pronto.');
         }
       } catch (error) {
         console.error('STT failed:', error);
+        setSttNotice('Transcrição automática indisponível. Digite sua resposta manualmente para continuar.');
       }
       setLoading(false);
     }
 
     if (!answerText) {
-      alert('Digite sua resposta ou grave novamente.');
+      setErrorMessage('Digite sua resposta ou grave novamente antes de enviar.');
       return;
     }
 
     setLoading(true);
+    setErrorMessage('');
     try {
-      const response = await axios.post(`${API_BASE_URL}/interview/answer/`, {
+      const response = await apiClient.post('/interview/answer/', {
         interview_id: interview.id,
         question_id: currentQ.id,
         answer_text: answerText,
@@ -208,9 +265,10 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
       setShowEvaluation(true);
       setInterview(response.data.interview);
       setCurrentAnswer('');
-      setAudioURL(null);
+      resetAnswerMedia();
     } catch (error) {
       console.error('Failed to submit answer:', error);
+      setErrorMessage('Não foi possível enviar a resposta. Seu texto foi preservado para tentar novamente.');
     } finally {
       setLoading(false);
     }
@@ -219,15 +277,16 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
   const nextQuestion = () => {
     setShowEvaluation(false);
     setEvaluation(null);
-    setAudioURL(null);
+    resetAnswerMedia();
     setCurrentAnswer('');
   };
 
   const currentQuestion = interview?.questions.find(q => q.order === interview.current_question);
   const isCompleted = interview?.status === 'COMPLETED';
+  const formattedRecordingTime = `${String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:${String(recordingSeconds % 60).padStart(2, '0')}`;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-violet-50/20 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-violet-50/20 p-4 sm:p-6">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <motion.div
@@ -243,6 +302,13 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
           <p className="text-slate-500">Practice with AI-powered voice interviews</p>
         </motion.div>
 
+        {errorMessage && (
+          <div className="mb-6 flex gap-3 rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
+            <AlertCircle className="mt-0.5 shrink-0" size={18} />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
         {/* Weekly Feedback Section */}
         {weeklyFeedback && (
           <motion.div
@@ -255,7 +321,7 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
                 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
                 : 'bg-gradient-to-r from-slate-700 to-slate-800'
             } text-white`}>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-lg font-bold mb-1">
                     {weeklyFeedback.is_unlocked ? 'Feedback Semanal Disponível!' : 'Feedback Semanal'}
@@ -284,7 +350,7 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl shadow-xl p-8 mb-8"
+            className="bg-white rounded-3xl shadow-xl p-5 sm:p-8 mb-8"
           >
             <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
               <Mic className="text-indigo-600" />
@@ -373,7 +439,7 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
           >
             {/* Progress Bar */}
             <div className="bg-white rounded-2xl p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between mb-2">
                 <span className="text-sm font-semibold text-slate-700">
                   Pergunta {interview.current_question} de {interview.total_questions}
                 </span>
@@ -393,8 +459,8 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
 
             {/* Current Question */}
             {currentQuestion && (
-              <div className="bg-white rounded-3xl shadow-xl p-8">
-                <div className="flex items-start gap-4 mb-6">
+              <div className="bg-white rounded-3xl shadow-xl p-5 sm:p-8">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-4 mb-6">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center flex-shrink-0">
                     <MessageSquare className="text-white" size={24} />
                   </div>
@@ -410,7 +476,7 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
 
                 {/* Audio Controls */}
                 {currentQuestion.question_audio_url && (
-                  <div className="mb-6 flex items-center gap-3">
+                  <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
                     <button
                       onClick={() => playQuestionAudio(currentQuestion.question_audio_url)}
                       className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
@@ -435,25 +501,52 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
                     />
 
                     {/* Recording Controls */}
-                    <div className="flex items-center gap-4">
-                      <button
-                        onMouseDown={startRecording}
-                        onMouseUp={stopRecording}
-                        onMouseLeave={stopRecording}
-                        onTouchStart={startRecording}
-                        onTouchEnd={stopRecording}
-                        className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
-                          isRecording
-                            ? 'bg-red-500 text-white animate-pulse'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
-                      >
-                        {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
-                        {isRecording ? 'Gravando...' : 'Segurar para Falar'}
-                      </button>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${isRecording ? 'bg-rose-500 text-white animate-pulse' : 'bg-white text-indigo-600 shadow-sm'}`}>
+                            {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-black text-slate-800">{isRecording ? 'Gravando agora' : audioURL ? 'Áudio capturado' : 'Resposta por voz'}</p>
+                            <p className="text-xs font-semibold text-slate-500">{recordingStatus}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-black text-slate-700 shadow-sm">
+                          <Clock size={16} className="text-indigo-500" />
+                          {formattedRecordingTime}
+                        </div>
+                      </div>
 
-                      {audioURL && (
-                        <audio controls src={audioURL} className="h-10" />
+                      <div className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-center">
+                        <button
+                          type="button"
+                          onClick={isRecording ? stopRecording : startRecording}
+                          disabled={loading}
+                          className={`flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-bold transition-all sm:w-auto ${
+                            isRecording
+                              ? 'bg-rose-500 text-white hover:bg-rose-600'
+                              : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                          } disabled:opacity-50`}
+                        >
+                          {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+                          {isRecording ? 'Parar gravação' : audioURL ? 'Gravar novamente' : 'Iniciar gravação'}
+                        </button>
+
+                        {audioURL ? (
+                          <audio controls src={audioURL} className="h-10 w-full" />
+                        ) : (
+                          <p className="text-xs font-semibold text-slate-500">
+                            STT tentará transcrever automaticamente ao enviar. Se falhar, o texto manual continua disponível.
+                          </p>
+                        )}
+                      </div>
+
+                      {sttNotice && (
+                        <div className="mt-3 flex gap-2 rounded-xl border border-indigo-100 bg-white p-3 text-xs font-semibold text-indigo-700">
+                          <Sparkles size={14} className="mt-0.5 shrink-0" />
+                          <span>{sttNotice}</span>
+                        </div>
                       )}
                     </div>
 

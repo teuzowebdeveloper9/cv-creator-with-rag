@@ -75,6 +75,36 @@ def test_qdrant_upsert_and_search(mock_qdrant):
     assert results[0]["document_id"] == 1
     assert "_score" in results[0]
 
+def test_qdrant_user_filter_isolates_results_and_point_ids(mock_qdrant):
+    store = QdrantVectorStore()
+    collection = "test_user_scoped_collection"
+    texts = [
+        "Python FastAPI com filas e Qdrant",
+        "Python FastAPI com filas e Qdrant",
+    ]
+    metadatas = [
+        {"source": "cv", "document_id": 10, "chunk_index": 0, "user_id": "user-a"},
+        {"source": "cv", "document_id": 10, "chunk_index": 0, "user_id": "user-b"},
+    ]
+
+    store.upsert(collection, texts, metadatas)
+
+    all_points, _ = mock_qdrant.scroll(collection_name=collection, limit=10, with_payload=True)
+    assert len(all_points) == 2
+    assert {point.payload["user_id"] for point in all_points} == {"user-a", "user-b"}
+    assert len({point.id for point in all_points}) == 2
+
+    results = store.search(
+        collection,
+        query="python fastapi",
+        limit=5,
+        max_per_source=5,
+        user_id="user-b",
+    )
+
+    assert len(results) == 1
+    assert results[0]["user_id"] == "user-b"
+
 def test_qdrant_no_pollution(mock_qdrant):
     # This test ensures that another instance with mock still sees nothing initially
     store = QdrantVectorStore()
