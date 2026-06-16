@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Document, UserProfile
+from .models import Document, UserProfile, Interview, InterviewQuestion, WeeklyFeedback
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -24,3 +24,41 @@ class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
         fields = '__all__'
+
+
+class InterviewQuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InterviewQuestion
+        fields = '__all__'
+
+
+class InterviewSerializer(serializers.ModelSerializer):
+    questions = InterviewQuestionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Interview
+        fields = '__all__'
+
+
+class InterviewListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Interview
+        fields = ['id', 'status', 'job_role', 'tech_stack', 'total_questions', 'current_question', 'average_score', 'started_at', 'completed_at']
+
+
+class WeeklyFeedbackSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WeeklyFeedback
+        fields = '__all__'
+
+
+class StartInterviewSerializer(serializers.Serializer):
+    job_role = serializers.CharField(required=True)
+    tech_stack = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class SubmitAnswerSerializer(serializers.Serializer):
+    interview_id = serializers.IntegerField(required=True)
+    question_id = serializers.IntegerField(required=True)
+    answer_text = serializers.CharField(required=False, allow_blank=True, default='')
+    answer_audio_url = serializers.CharField(required=False, allow_blank=True, default='')

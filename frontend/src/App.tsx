@@ -20,10 +20,12 @@ import {
   Download,
   LayoutDashboard,
   ExternalLink,
-  Info
+  Info,
+  Mic
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import RagCvLogo from './components/RagCvLogo';
+import InterviewPage from './components/InterviewPage';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -136,6 +138,7 @@ function App() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [downloading, setDownloading] = useState<boolean>(false);
   const [showProfile, setShowProfile] = useState<boolean>(false);
+  const [activePage, setActivePage] = useState<'cv' | 'interview'>('cv');
   const [profile, setProfile] = useState<ProfileData>({
     full_name: '', email: '', phone: '', linkedin: '', github: '',
     portfolio: '', city: '', summary: '', photo_url: ''
@@ -517,6 +520,36 @@ function App() {
             ))}
           </div>
         </motion.div>
+
+        {/* Navigation Tabs */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-2 bg-white/50 backdrop-blur-sm rounded-2xl p-1 border border-white/60 shadow-sm"
+        >
+          <button
+            onClick={() => setActivePage('cv')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+              activePage === 'cv'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-600 hover:text-indigo-600'
+            }`}
+          >
+            <FileText size={16} />
+            Currículo
+          </button>
+          <button
+            onClick={() => setActivePage('interview')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+              activePage === 'interview'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-600 hover:text-indigo-600'
+            }`}
+          >
+            <Mic size={16} />
+            Entrevista
+          </button>
+        </motion.div>
         
         <motion.div
           initial={{ opacity: 0, x: 20 }}
@@ -710,6 +743,10 @@ function App() {
         )}
       </AnimatePresence>
 
+      {/* Conditional Page Rendering */}
+      {activePage === 'interview' ? (
+        <InterviewPage />
+      ) : (
       <main className="max-w-[1440px] mx-auto px-8 pb-32 grid grid-cols-1 lg:grid-cols-12 gap-10">
         
         {/* Left Sidebar */}
@@ -1024,6 +1061,7 @@ function App() {
           </AnimatePresence>
         </div>
       </main>
+      )}
 
       {/* Floating Status Bar */}
       <AnimatePresence>
