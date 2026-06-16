@@ -165,17 +165,40 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
   };
 
   const submitAnswer = async () => {
-    if (!interview || !currentAnswer.trim()) return;
+    if (!interview) return;
 
     const currentQ = interview.questions.find(q => q.order === interview.current_question);
     if (!currentQ) return;
+
+    let answerText = currentAnswer.trim();
+
+    if (!answerText && audioURL) {
+      setLoading(true);
+      try {
+        const audioBlob = await fetch(audioURL).then(r => r.blob());
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'answer.webm');
+        const sttResponse = await axios.post(`${API_BASE_URL}/voice/stt/`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        answerText = sttResponse.data.text || '';
+        setCurrentAnswer(answerText);
+      } catch (error) {
+        console.error('STT failed:', error);
+        setUploadStatus({ type: 'error', message: 'Falha ao transcrever áudio. Digite sua resposta.' });
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (!answerText) return;
 
     setLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/interview/answer/`, {
         interview_id: interview.id,
         question_id: currentQ.id,
-        answer_text: currentAnswer,
+        answer_text: answerText,
       });
 
       setEvaluation(response.data.evaluation);
@@ -433,7 +456,7 @@ export default function InterviewPage({ jobDescription, hasCV }: InterviewPagePr
 
                     <button
                       onClick={submitAnswer}
-                      disabled={!currentAnswer.trim() || loading}
+                      disabled={(!currentAnswer.trim() && !audioURL) || loading}
                       className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                     >
                       {loading ? (
