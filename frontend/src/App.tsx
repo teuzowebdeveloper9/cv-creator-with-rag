@@ -31,7 +31,25 @@ import { motion, AnimatePresence } from 'framer-motion';
 import RagCvLogo from './components/RagCvLogo';
 import InterviewPage from './components/InterviewPage';
 
-const API_BASE_URL = '/api';
+const resolveApiBaseUrl = () => {
+  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (configuredBase) {
+    return configuredBase.replace(/\/+$/, '');
+  }
+
+  if (typeof window === 'undefined') {
+    return 'http://localhost:8000/api';
+  }
+
+  const { protocol, hostname, port } = window.location;
+  if (port === '5173') {
+    return `${protocol}//${hostname}:8000/api`;
+  }
+
+  return `${window.location.origin.replace(/\/+$/, '')}/api`;
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -55,6 +73,17 @@ const jsonHeadersWithCSRF = (): Record<string, string> => {
   const csrfToken = getCookieValue('csrftoken');
   if (csrfToken) headers['X-CSRFToken'] = csrfToken;
   return headers;
+};
+
+const extractJsonErrorMessage = async (response: Response, fallback: string) => {
+  try {
+    const data = await response.json();
+    if (typeof data?.error === 'string' && data.error.trim()) return data.error;
+    if (typeof data?.detail === 'string' && data.detail.trim()) return data.detail;
+    if (typeof data?.message === 'string' && data.message.trim()) return data.message;
+  } catch { }
+
+  return fallback;
 };
 
 const authEndpointCandidates = {
@@ -735,7 +764,10 @@ function App() {
           profile_data: { ...profile, photo_url: profile.photo_url || '' },
         }),
       });
-      if (!response.ok) throw new Error('Falha na geração');
+      if (!response.ok) {
+        const message = await extractJsonErrorMessage(response, `Falha na geração (${response.status})`);
+        throw new Error(message);
+      }
       if (!response.body) throw new Error('Corpo da resposta vazio');
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
