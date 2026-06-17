@@ -58,6 +58,16 @@ const apiClient = axios.create({
   xsrfHeaderName: 'X-CSRFToken',
 });
 
+let csrfTokenCache = '';
+
+const setCSRFToken = (token: unknown) => {
+  if (typeof token === 'string' && token.trim()) {
+    csrfTokenCache = token.trim();
+  }
+};
+
+const getCSRFToken = () => csrfTokenCache || getCookieValue('csrftoken');
+
 const getCookieValue = (name: string) => {
   if (typeof document === 'undefined') return '';
   const encodedName = `${encodeURIComponent(name)}=`;
@@ -70,10 +80,28 @@ const getCookieValue = (name: string) => {
 
 const jsonHeadersWithCSRF = (): Record<string, string> => {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const csrfToken = getCookieValue('csrftoken');
+  const csrfToken = getCSRFToken();
   if (csrfToken) headers['X-CSRFToken'] = csrfToken;
   return headers;
 };
+
+apiClient.interceptors.request.use((config) => {
+  const method = (config.method || 'get').toLowerCase();
+  if (['post', 'put', 'patch', 'delete'].includes(method)) {
+    const csrfToken = getCSRFToken();
+    if (csrfToken) {
+      config.headers = config.headers || {};
+      config.headers['X-CSRFToken'] = csrfToken;
+    }
+  }
+  return config;
+});
+
+apiClient.interceptors.response.use((response) => {
+  const data = response.data as Record<string, unknown> | undefined;
+  setCSRFToken(data?.csrf_token);
+  return response;
+});
 
 const extractJsonErrorMessage = async (response: Response, fallback: string) => {
   try {
