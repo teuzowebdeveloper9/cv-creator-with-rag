@@ -4,6 +4,7 @@ import re
 import base64
 import datetime
 import json
+from urllib.parse import unquote, urlparse
 
 from django.contrib.auth import login, logout
 from django.middleware.csrf import get_token
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_UPLOAD_EXTENSIONS = {'.pdf', '.html', '.htm'}
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
+PROFILE_PHOTO_API_PREFIX = "/api/profile/photo/file/"
 
 _PROMPT_INJECTION_PATTERNS = [
     re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions", re.IGNORECASE),
@@ -89,6 +91,75 @@ def _format_profile_context(profile: dict) -> str:
     if profile.get("photo_url"):
         parts.append(f"Foto disponivel: {profile['photo_url']}")
     return "\n".join(parts)
+
+
+def _photo_blob_key_from_reference(photo_url) -> str:
+    if not photo_url:
+        return ""
+
+    reference = str(photo_url).strip()
+    if not reference or reference.lower() in {"none", "null", "undefined"}:
+        return ""
+
+    parsed = urlparse(reference)
+    path = parsed.path if parsed.scheme or parsed.netloc else reference
+    for prefix in (PROFILE_PHOTO_API_PREFIX, f"/api{PROFILE_PHOTO_API_PREFIX}"):
+        if path.startswith(prefix):
+            return unquote(path[len(prefix):]).strip("/")
+
+    if path.startswith("/"):
+        return ""
+    return unquote(path).strip("/")
+
+
+def _is_user_photo_reference(photo_url, user) -> bool:
+    key = _photo_blob_key_from_reference(photo_url)
+    if not key:
+        return True
+
+    if "/" in key:
+        return False
+
+    if key.startswith(f"profile_{user.id}_"):
+        return True
+
+    saved_key = ""
+    try:
+        saved_key = _photo_blob_key_from_reference(user.profile.photo_url)
+    except UserProfile.DoesNotExist:
+        pass
+    return bool(saved_key and key == saved_key)
+
+
+def _photo_content_type(blob_key: str) -> str:
+    ext = os.path.splitext(blob_key)[1].lower()
+    if ext == ".png":
+        return "image/png"
+    if ext == ".webp":
+        return "image/webp"
+    return "image/jpeg"
+
+
+def _resolve_available_user_photo_url(photo_url, user, *, as_data_url: bool = False) -> str:
+    key = _photo_blob_key_from_reference(photo_url)
+    if not key or not _is_user_photo_reference(key, user):
+        return ""
+
+    try:
+        storage = BlobStorage()
+        photo_bytes = storage.get_photo(key)
+        if not photo_bytes:
+            logger.warning("Profile photo blob is unavailable; generating without photo: %s", key)
+            return ""
+    except Exception as exc:
+        logger.warning("Profile photo blob check failed; generating without photo: %s", exc)
+        return ""
+
+    if as_data_url:
+        encoded = base64.b64encode(photo_bytes).decode("ascii")
+        return f"data:{_photo_content_type(key)};base64,{encoded}"
+
+    return f"{PROFILE_PHOTO_API_PREFIX}{key}"
 
 
 def _user_payload(user):
@@ -187,33 +258,37 @@ class UploadPhotoView(APIView):
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             file_name = f"profile_{request.user.id}_{timestamp}{ext}"
             photo_bytes = photo.read()
-            storage.save_photo(file_name, photo_bytes)
-
-            photo_url = file_name
+            blob_key = storage.save_photo(file_name, photo_bytes)
+            if not blob_key:
+                return Response(
+                    {"error": "Não foi possível salvar a foto no blob storage."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
 
             profile, _ = UserProfile.objects.get_or_create(
                 user=request.user,
                 defaults={"email": request.user.email or request.user.username},
             )
-            profile.photo_url = photo_url
+            profile.photo_url = blob_key
             profile.save()
 
-            return Response({"photo_url": f"/api/profile/photo/file/{photo_url}"}, status=status.HTTP_200_OK)
+            return Response({"photo_url": f"{PROFILE_PHOTO_API_PREFIX}{blob_key}"}, status=status.HTTP_200_OK)
         except Exception as e:
             return _safe_error_response("Photo upload failed", e)
 
 
 class ServePhotoView(APIView):
     def get(self, request, filename):
-        if not filename.startswith(f"profile_{request.user.id}_"):
+        blob_key = _photo_blob_key_from_reference(filename)
+        if not _is_user_photo_reference(blob_key, request.user):
             return Response({"error": "Photo not found"}, status=status.HTTP_404_NOT_FOUND)
         try:
             storage = BlobStorage()
-            photo_bytes = storage.get_photo(filename)
+            photo_bytes = storage.get_photo(blob_key)
             if not photo_bytes:
                 return Response({"error": "Photo not found"}, status=status.HTTP_404_NOT_FOUND)
 
-            ext = os.path.splitext(filename)[1].lower()
+            ext = os.path.splitext(blob_key)[1].lower()
             content_type = 'image/jpeg'
             if ext == '.png':
                 content_type = 'image/png'
@@ -230,11 +305,13 @@ class ServePhotoView(APIView):
 class DownloadPDFView(APIView):
     def post(self, request):
         md_content = sanitize_cv_markdown(request.data.get('markdown', ''))
-        photo_url = request.data.get('photo_url', '')
+        photo_url = _resolve_available_user_photo_url(
+            request.data.get('photo_url', ''),
+            request.user,
+            as_data_url=True,
+        )
         if not md_content:
             return Response({"error": "Nenhum conteúdo fornecido"}, status=status.HTTP_400_BAD_REQUEST)
-        if not _is_user_photo_reference(photo_url, request.user.id):
-            return Response({"error": "Foto não encontrada"}, status=status.HTTP_404_NOT_FOUND)
 
         try:
             pdf_bytes = PDFGenerator.generate(md_content, photo_url)
@@ -354,13 +431,6 @@ def _filter_user_fragments(fragments, user_id):
     return filtered
 
 
-def _is_user_photo_reference(photo_url: str, user_id: int) -> bool:
-    if not photo_url:
-        return True
-    filename = os.path.basename(photo_url)
-    return filename.startswith(f"profile_{user_id}_")
-
-
 class GenerateView(APIView):
     def post(self, request):
         serializer = GenerateSerializer(data=request.data)
@@ -368,9 +438,11 @@ class GenerateView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         job_description = _sanitize_input(serializer.validated_data['job_description'])
-        profile_data = serializer.validated_data.get('profile_data', {})
-        if profile_data and not _is_user_photo_reference(str(profile_data.get("photo_url", "")), request.user.id):
-            return Response({"error": "Foto não encontrada"}, status=status.HTTP_404_NOT_FOUND)
+        profile_data = serializer.validated_data.get('profile_data') or {}
+        if not isinstance(profile_data, dict):
+            profile_data = {}
+        photo_url = _resolve_available_user_photo_url(profile_data.get("photo_url"), request.user)
+        profile_data["photo_url"] = photo_url
 
         if _has_prompt_injection(job_description):
             return Response(

@@ -40,6 +40,23 @@ const apiClient = axios.create({
   xsrfHeaderName: 'X-CSRFToken',
 });
 
+const getCookieValue = (name: string) => {
+  if (typeof document === 'undefined') return '';
+  const encodedName = `${encodeURIComponent(name)}=`;
+  const cookie = document.cookie
+    .split('; ')
+    .find((row) => row.startsWith(encodedName));
+
+  return cookie ? decodeURIComponent(cookie.slice(encodedName.length)) : '';
+};
+
+const jsonHeadersWithCSRF = (): Record<string, string> => {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const csrfToken = getCookieValue('csrftoken');
+  if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+  return headers;
+};
+
 const authEndpointCandidates = {
   session: ['/auth/session/', '/session/', '/users/session/'],
   login: ['/auth/login/', '/login/', '/users/login/'],
@@ -530,9 +547,7 @@ function App() {
     const response = await fetch(`${API_BASE_URL}/download-pdf/`, {
       method: 'POST',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: jsonHeadersWithCSRF(),
       body: JSON.stringify({ markdown, photo_url: profile.photo_url || '' }),
     });
 
@@ -620,7 +635,7 @@ function App() {
       const response = await fetch(`${API_BASE_URL}/update-cv/`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeadersWithCSRF(),
         body: JSON.stringify({
           current_cv: markdown,
           edit_instruction: instruction,
@@ -714,10 +729,10 @@ function App() {
       const response = await fetch(`${API_BASE_URL}/generate/`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeadersWithCSRF(),
         body: JSON.stringify({ 
           job_description: jobDescription,
-          profile_data: profile
+          profile_data: { ...profile, photo_url: profile.photo_url || '' },
         }),
       });
       if (!response.ok) throw new Error('Falha na geração');
