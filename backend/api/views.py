@@ -381,7 +381,7 @@ class DownloadPDFView(APIView):
             file_name = f"cv_{timestamp}.pdf"
             blob_key = storage.save_pdf(file_name, pdf_bytes, user_id=request.user.id)
 
-            if blob_key:
+            if blob_key and isinstance(blob_key, str):
                 GeneratedCV.objects.create(
                     owner=request.user,
                     blob_key=blob_key,
