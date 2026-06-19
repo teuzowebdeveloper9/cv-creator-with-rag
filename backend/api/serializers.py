@@ -1,7 +1,7 @@
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from .models import Document, UserProfile, Interview, InterviewQuestion, WeeklyFeedback
+from .models import Document, UserProfile, Interview, InterviewQuestion, WeeklyFeedback, GeneratedCV
 
 
 User = get_user_model()
@@ -116,10 +116,29 @@ class WeeklyFeedbackSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'owner', 'created_at')
 
 
+class GeneratedCVSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GeneratedCV
+        fields = ['id', 'file_name', 'job_description', 'created_at']
+        read_only_fields = ('id', 'created_at')
+
+
 class StartInterviewSerializer(serializers.Serializer):
     job_role = serializers.CharField(required=True)
     tech_stack = serializers.CharField(required=False, allow_blank=True, default='')
     job_description = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate_job_role(self, value):
+        normalized = value.strip()
+        if not normalized:
+            raise serializers.ValidationError("job_role is required.")
+        return normalized
+
+    def validate_tech_stack(self, value):
+        return value.strip()
+
+    def validate_job_description(self, value):
+        return value.strip()
 
 
 class SubmitAnswerSerializer(serializers.Serializer):
@@ -127,3 +146,14 @@ class SubmitAnswerSerializer(serializers.Serializer):
     question_id = serializers.IntegerField(required=True)
     answer_text = serializers.CharField(required=False, allow_blank=True, default='')
     answer_audio_url = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate_answer_text(self, value):
+        return value.strip()
+
+    def validate_answer_audio_url(self, value):
+        return value.strip()
+
+    def validate(self, attrs):
+        if not attrs.get("answer_text") and not attrs.get("answer_audio_url"):
+            raise serializers.ValidationError("Provide answer_text or answer_audio_url.")
+        return attrs

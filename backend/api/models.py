@@ -89,6 +89,22 @@ class InterviewQuestion(models.Model):
         return f"Q{self.order}: {self.question_text[:50]}..."
 
 
+class GeneratedCV(models.Model):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='generated_cvs')
+    blob_key = models.CharField(max_length=500)
+    file_name = models.CharField(max_length=255)
+    job_description = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Generated CV"
+        verbose_name_plural = "Generated CVs"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.file_name} - {self.owner}"
+
+
 class WeeklyFeedback(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='weekly_feedbacks')
     week_start = models.DateField()

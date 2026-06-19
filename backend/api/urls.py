@@ -4,7 +4,8 @@ from .views import (
     DownloadPDFView, UpdateCVView, UserProfileView, UploadPhotoView, ServePhotoView,
     HealthCheckView, StartInterviewView, SubmitAnswerView, InterviewDetailView,
     InterviewListView, WeeklyFeedbackView, VoiceTTTView, VoiceSTTView,
-    LoginView, LogoutView, RegisterView, SessionView
+    LoginView, LogoutView, RegisterView, SessionView,
+    GeneratedCVListView, GeneratedCVDetailView, ServeGeneratedPDFView
 )
 
 urlpatterns = [
@@ -29,4 +30,7 @@ urlpatterns = [
     path('interview/feedback/', WeeklyFeedbackView.as_view(), name='weekly-feedback'),
     path('voice/tts/', VoiceTTTView.as_view(), name='voice-tts'),
     path('voice/stt/', VoiceSTTView.as_view(), name='voice-stt'),
+    path('generated-cvs/', GeneratedCVListView.as_view(), name='generated-cv-list'),
+    path('generated-cvs/<int:cv_id>/', GeneratedCVDetailView.as_view(), name='generated-cv-detail'),
+    path('generated-cvs/<int:cv_id>/serve/', ServeGeneratedPDFView.as_view(), name='generated-cv-serve'),
 ]
