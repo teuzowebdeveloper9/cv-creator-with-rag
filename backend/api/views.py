@@ -20,7 +20,7 @@ from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator, P
 from ai_services.cv_markdown import CV_OUTPUT_RULES, sanitize_cv_markdown
 from .serializers import (
     GenerateSerializer, DocumentSerializer, UpdateCVSerializer, UserProfileSerializer,
-    LoginSerializer, RegisterSerializer
+    LoginSerializer, RegisterSerializer, GeneratedCVSerializer
 )
 
 
@@ -30,13 +30,15 @@ class HealthCheckView(APIView):
     def get(self, request):
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 from .tasks import process_document_task
-from .models import Document, UserProfile
+from .models import Document, UserProfile, GeneratedCV
 
 logger = logging.getLogger(__name__)
 
 ALLOWED_UPLOAD_EXTENSIONS = {'.pdf', '.html', '.htm'}
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
 PROFILE_PHOTO_API_PREFIX = "/api/profile/photo/file/"
+INTERVIEWER_NAME = "Violet"
+INTERVIEWER_ROLE = "Entrevistadora de IA"
 
 _PROMPT_INJECTION_PATTERNS = [
     re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions", re.IGNORECASE),
@@ -168,6 +170,64 @@ def _user_payload(user):
         "email": user.email or user.username,
         "username": user.username,
         "full_name": user.get_full_name(),
+    }
+
+
+def _build_interviewer_identity() -> dict:
+    return {
+        "name": INTERVIEWER_NAME,
+        "role": INTERVIEWER_ROLE,
+        "persona": "calma, objetiva e profissional",
+        "voice_provider": "elevenlabs" if elevenlabs_service.is_available() else "unavailable",
+    }
+
+
+def _build_question_prompt_text(question_text: str, order: int, total: int, *, include_intro: bool = False) -> str:
+    intro = ""
+    if include_intro:
+        intro = (
+            f"Olá, eu sou {INTERVIEWER_NAME}, sua {INTERVIEWER_ROLE.lower()}. "
+            "Vou conduzir esta simulação de entrevista técnica. "
+            "Responda em voz alta como se estivesse em uma entrevista real e, quando terminar, encerre a sua fala no botão da tela. "
+        )
+
+    return (
+        f"{intro}Pergunta {order} de {total}. "
+        f"{question_text} "
+        "Pode começar quando estiver pronto."
+    )
+
+
+def _encode_tts_audio(text: str) -> str:
+    audio = elevenlabs_service.text_to_speech(text)
+    if not audio:
+        return ""
+
+    encoded = base64.b64encode(audio).decode("ascii")
+    return f"data:audio/mp3;base64,{encoded}"
+
+
+def _build_interview_turn_payload(interview) -> dict:
+    current_question = interview.questions.filter(order=interview.current_question).first()
+    stage = "completed" if interview.status == "COMPLETED" else "ai_prompt"
+    turn_state = "completed" if interview.status == "COMPLETED" else "assistant_speaking"
+
+    prompt = None
+    if current_question:
+        prompt = {
+            "question_id": current_question.id,
+            "order": current_question.order,
+            "total": interview.total_questions,
+            "text": current_question.question_text,
+            "audio_url": current_question.question_audio_url,
+        }
+
+    return {
+        "stage": stage,
+        "turn_state": turn_state,
+        "interviewer": _build_interviewer_identity(),
+        "prompt": prompt,
+        "candidate_action": "wait_for_prompt" if prompt else "review_feedback",
     }
 
 
@@ -316,14 +376,18 @@ class DownloadPDFView(APIView):
         try:
             pdf_bytes = PDFGenerator.generate(md_content, photo_url)
 
-            # Save to Blob Storage (MinIO)
-            try:
-                storage = BlobStorage()
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                file_name = f"cv_{timestamp}.pdf"
-                storage.save_pdf(file_name, pdf_bytes)
-            except Exception as blob_err:
-                logger.warning(f"Failed to save to blob storage: {blob_err}")
+            storage = BlobStorage()
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            file_name = f"cv_{timestamp}.pdf"
+            blob_key = storage.save_pdf(file_name, pdf_bytes, user_id=request.user.id)
+
+            if blob_key and isinstance(blob_key, str):
+                GeneratedCV.objects.create(
+                    owner=request.user,
+                    blob_key=blob_key,
+                    file_name=file_name,
+                    job_description=request.data.get('job_description', ''),
+                )
 
             response = HttpResponse(pdf_bytes, content_type='application/pdf')
             response['Content-Disposition'] = 'inline; filename="curriculo.pdf"'
@@ -696,11 +760,14 @@ class StartInterviewView(APIView):
 
         for i, q in enumerate(questions):
             question_audio = None
+            prompt_text = _build_question_prompt_text(
+                q["question"],
+                i + 1,
+                len(questions),
+                include_intro=i == 0,
+            )
             if elevenlabs_service.is_available():
-                audio = elevenlabs_service.text_to_speech(q["question"])
-                if audio:
-                    import base64
-                    question_audio = "data:audio/mp3;base64," + base64.b64encode(audio).decode()
+                question_audio = _encode_tts_audio(prompt_text)
 
             InterviewQuestion.objects.create(
                 interview=interview,
@@ -712,7 +779,13 @@ class StartInterviewView(APIView):
         interview.current_question = 1
         interview.save()
 
-        return Response(InterviewSerializer(interview).data, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "interview": InterviewSerializer(interview).data,
+                "conversation": _build_interview_turn_payload(interview),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SubmitAnswerView(APIView):
@@ -772,6 +845,7 @@ class SubmitAnswerView(APIView):
                 "improvements": json.loads(question.improvements) if question.improvements else [],
             },
             "interview": InterviewSerializer(interview).data,
+            "conversation": _build_interview_turn_payload(interview),
         }, status=status.HTTP_200_OK)
 
 
@@ -779,7 +853,10 @@ class InterviewDetailView(APIView):
     def get(self, request, interview_id):
         try:
             interview = Interview.objects.get(id=interview_id, owner=request.user)
-            return Response(InterviewSerializer(interview).data)
+            return Response({
+                "interview": InterviewSerializer(interview).data,
+                "conversation": _build_interview_turn_payload(interview),
+            })
         except Interview.DoesNotExist:
             return Response({"error": "Interview not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -888,3 +965,56 @@ class VoiceSTTView(APIView):
         if text:
             return Response({"text": text})
         return Response({"text": "", "error": "STT unavailable - type your answer"}, status=status.HTTP_200_OK)
+
+
+class GeneratedCVListView(APIView):
+    def get(self, request):
+        cvs = GeneratedCV.objects.filter(owner=request.user).order_by('-created_at')
+        serializer = GeneratedCVSerializer(cvs, many=True)
+        return Response(serializer.data)
+
+
+class GeneratedCVDetailView(APIView):
+    def get(self, request, cv_id):
+        try:
+            cv = GeneratedCV.objects.get(id=cv_id, owner=request.user)
+            serializer = GeneratedCVSerializer(cv)
+            return Response(serializer.data)
+        except GeneratedCV.DoesNotExist:
+            return Response({"error": "CV not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, cv_id):
+        try:
+            cv = GeneratedCV.objects.get(id=cv_id, owner=request.user)
+        except GeneratedCV.DoesNotExist:
+            return Response({"error": "CV not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            storage = BlobStorage()
+            storage.s3.delete_object(Bucket=storage.bucket_name, Key=cv.blob_key)
+        except Exception as e:
+            logger.warning(f"Failed to delete blob {cv.blob_key}: {e}")
+
+        cv.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ServeGeneratedPDFView(APIView):
+    def get(self, request, cv_id):
+        try:
+            cv = GeneratedCV.objects.get(id=cv_id, owner=request.user)
+        except GeneratedCV.DoesNotExist:
+            return Response({"error": "CV not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            storage = BlobStorage()
+            pdf_bytes = storage.get_pdf(cv.blob_key)
+            if not pdf_bytes:
+                return Response({"error": "PDF file not found in storage"}, status=status.HTTP_404_NOT_FOUND)
+
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
+            response['Content-Disposition'] = f'inline; filename="{cv.file_name}"'
+            response['Cache-Control'] = 'public, max-age=3600'
+            return response
+        except Exception as e:
+            return _safe_error_response("Failed to serve PDF", e)

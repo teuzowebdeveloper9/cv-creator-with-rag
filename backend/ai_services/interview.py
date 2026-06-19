@@ -12,6 +12,12 @@ from .voice import elevenlabs_service
 logger = logging.getLogger(__name__)
 
 INTERVIEW_COLLECTION = "interviews"
+INTERVIEWER_PROFILE = {
+    "name": "Lia",
+    "role": "Entrevistadora Tecnica IA",
+    "language": "pt-BR",
+    "style": "objetiva e acolhedora",
+}
 
 
 class InterviewState(TypedDict):
@@ -30,6 +36,32 @@ class InterviewOrchestrator:
     def __init__(self):
         self.llm = LLMOrchestrator()
         self.vector_store = QdrantVectorStore()
+
+    def get_interviewer_profile(self) -> dict:
+        return dict(INTERVIEWER_PROFILE)
+
+    def build_spoken_prompt(
+        self,
+        *,
+        question_text: str,
+        question_order: int,
+        total_questions: int,
+        job_role: str = "",
+        tech_stack: str = "",
+        introduce: bool = False,
+    ) -> str:
+        prompt_parts = []
+        if introduce:
+            role_context = f" para a vaga de {job_role}" if job_role else ""
+            stack_context = f" focada em {tech_stack}" if tech_stack else ""
+            prompt_parts.append(
+                f"Ola! Eu sou {INTERVIEWER_PROFILE['name']}, sua {INTERVIEWER_PROFILE['role'].lower()}{role_context}{stack_context}. "
+                "Vou conduzir esta entrevista em portugues, uma pergunta por vez."
+            )
+
+        prompt_parts.append(f"Pergunta {question_order} de {total_questions}.")
+        prompt_parts.append(question_text.strip())
+        return " ".join(part.strip() for part in prompt_parts if part and part.strip())
 
     def generate_questions(self, job_role: str, tech_stack: str, profile_context: str) -> list[dict]:
         system_prompt = """Voce e um especialista em entrevistas tecnicas para vagas de tecnologia.
@@ -57,7 +89,7 @@ Gere 5 perguntas tecnicas para entrevista."""
             if response.startswith("```"):
                 response = response.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             questions = json.loads(response)
-            return questions[:5]
+            return self._normalize_questions(questions[:5])
         except Exception as e:
             logger.error(f"Failed to generate questions: {e}")
             return self._get_fallback_questions(job_role, tech_stack)
@@ -88,16 +120,16 @@ Avalie a resposta e forneça feedback detalhado."""
             if response.startswith("```"):
                 response = response.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             evaluation = json.loads(response)
-            return evaluation
+            return self._normalize_evaluation(evaluation)
         except Exception as e:
             logger.error(f"Failed to evaluate answer: {e}")
-            return {
+            return self._normalize_evaluation({
                 "score": 5,
                 "feedback": "Nao foi possivel avaliar a resposta automaticamente.",
                 "strengths": [],
                 "improvements": ["Tente ser mais especifico na sua resposta"],
                 "correct_answer": ""
-            }
+            })
 
     def search_web(self, query: str) -> str:
         try:
@@ -150,6 +182,43 @@ Gere um feedback semanal completo."""
             {"question": f"Quais sao as melhores praticas para desenvolvimento com {tech_stack.split(',')[0].strip() if tech_stack else 'sua stack'}?", "category": "tecnica", "difficulty": "medium"},
             {"question": "Como voce se mantem atualizado com as novas tecnologias?", "category": "comportamental", "difficulty": "easy"},
         ]
+
+    def _normalize_questions(self, questions: list[dict]) -> list[dict]:
+        normalized = []
+        for item in questions or []:
+            if isinstance(item, str):
+                item = {"question": item}
+            question_text = str(item.get("question", "")).strip()
+            if not question_text:
+                continue
+            normalized.append({
+                "question": question_text,
+                "category": str(item.get("category", "tecnica")).strip() or "tecnica",
+                "difficulty": str(item.get("difficulty", "medium")).strip() or "medium",
+            })
+        return normalized or self._get_fallback_questions("", "")
+
+    def _normalize_evaluation(self, evaluation: dict) -> dict:
+        raw_score = evaluation.get("score", 0)
+        try:
+            score = max(0.0, min(10.0, float(raw_score)))
+        except (TypeError, ValueError):
+            score = 0.0
+
+        strengths = evaluation.get("strengths", [])
+        improvements = evaluation.get("improvements", [])
+        if not isinstance(strengths, list):
+            strengths = [str(strengths)] if strengths else []
+        if not isinstance(improvements, list):
+            improvements = [str(improvements)] if improvements else []
+
+        return {
+            "score": score,
+            "feedback": str(evaluation.get("feedback", "")).strip(),
+            "strengths": [str(item).strip() for item in strengths if str(item).strip()],
+            "improvements": [str(item).strip() for item in improvements if str(item).strip()],
+            "correct_answer": str(evaluation.get("correct_answer", "")).strip(),
+        }
 
     def save_to_vector_store(self, interview_id: int, question_data: dict):
         try:
