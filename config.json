@@ -1,0 +1,12 @@
+{
+  "servers": [
+    {
+      "name": "cv-generator",
+      "command": "node",
+      "args": ["mcp-servers/cv-generator/dist/index.js"],
+      "env": {
+        "CV_BACKEND_URL": "http://localhost:8000"
+      }
+    }
+  ]
+}
