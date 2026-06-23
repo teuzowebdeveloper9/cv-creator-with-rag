@@ -6,10 +6,12 @@ import {
   Brain,
   CheckCircle2,
   Clock,
+  Keyboard,
   Loader2,
   Mic,
   MicOff,
   Play,
+  Pencil,
   Sparkles,
   Volume2,
 } from 'lucide-react';
@@ -98,6 +100,7 @@ type VoiceStage =
   | 'assistant_speaking'
   | 'candidate_ready'
   | 'listening'
+  | 'transcribing'
   | 'processing'
   | 'feedback'
   | 'completed';
@@ -106,7 +109,6 @@ const formatResponsePayload = <T extends InterviewPayload>(payload: T | Intervie
   if ('interview' in payload) {
     return payload as T;
   }
-
   return { interview: payload as Interview } as T;
 };
 
@@ -121,7 +123,7 @@ const OrbAssistant = ({
 }) => {
   const isListening = stage === 'listening';
   const isSpeaking = stage === 'assistant_speaking';
-  const isProcessing = stage === 'processing';
+  const isProcessing = stage === 'processing' || stage === 'transcribing';
   const isFeedback = stage === 'feedback';
   const isCompleted = stage === 'completed';
 
@@ -216,7 +218,8 @@ const StageBadge = ({ stage }: { stage: VoiceStage }) => {
     idle: { label: 'Pronto para iniciar', className: 'bg-white/10 text-slate-200 border-white/10' },
     assistant_speaking: { label: 'IA falando', className: 'bg-violet-500/15 text-violet-100 border-violet-300/20' },
     candidate_ready: { label: 'Sua vez de responder', className: 'bg-indigo-500/15 text-indigo-100 border-indigo-300/20' },
-    listening: { label: 'IA escutando', className: 'bg-fuchsia-500/15 text-fuchsia-100 border-fuchsia-300/20' },
+    listening: { label: 'Gravando', className: 'bg-fuchsia-500/15 text-fuchsia-100 border-fuchsia-300/20' },
+    transcribing: { label: 'Transcrevendo', className: 'bg-amber-500/15 text-amber-100 border-amber-300/20' },
     processing: { label: 'Processando resposta', className: 'bg-amber-500/15 text-amber-100 border-amber-300/20' },
     feedback: { label: 'Feedback pronto', className: 'bg-emerald-500/15 text-emerald-100 border-emerald-300/20' },
     completed: { label: 'Entrevista concluída', className: 'bg-emerald-500/15 text-emerald-100 border-emerald-300/20' },
@@ -246,9 +249,9 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [recordingStatus, setRecordingStatus] = useState('Quando for sua vez, clique para começar a responder.');
   const [errorMessage, setErrorMessage] = useState('');
-  const [sttNotice, setSttNotice] = useState('');
+  const [transcriptionReady, setTranscriptionReady] = useState(false);
+  const [showTextInput, setShowTextInput] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -270,8 +273,8 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
       return null;
     });
     setRecordingSeconds(0);
-    setRecordingStatus('Quando for sua vez, clique para começar a responder.');
-    setSttNotice('');
+    setTranscriptionReady(false);
+    setShowTextInput(false);
   }, [revokeAudioURL]);
 
   const currentQuestion = interview?.questions.find((q) => q.order === interview.current_question) || null;
@@ -292,7 +295,7 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
     : showEvaluation
       ? 'feedback'
       : loading
-        ? 'processing'
+        ? (transcriptionReady ? 'processing' : 'transcribing')
         : isRecording
           ? 'listening'
           : isPlaying
@@ -304,16 +307,18 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
   const orbSubtitle = voiceStage === 'assistant_speaking'
     ? 'Apresentando a pergunta com voz sintetizada.'
     : voiceStage === 'candidate_ready'
-      ? 'Sua vez. Estruture a resposta como em uma entrevista real.'
+      ? 'Aperte o microfone e responda quando estiver pronto.'
       : voiceStage === 'listening'
         ? 'Escutando sua resposta em tempo real.'
-        : voiceStage === 'processing'
-          ? 'Analisando a resposta e preparando o próximo passo.'
-          : voiceStage === 'feedback'
-            ? 'Feedback técnico pronto para revisão.'
-            : voiceStage === 'completed'
-              ? 'Entrevista encerrada. Revise sua performance.'
-              : 'Pronto para conduzir a próxima simulação.';
+        : voiceStage === 'transcribing'
+          ? 'Convertendo sua fala em texto...'
+          : voiceStage === 'processing'
+            ? 'Analisando a resposta.'
+            : voiceStage === 'feedback'
+              ? 'Feedback técnico pronto para revisão.'
+              : voiceStage === 'completed'
+                ? 'Entrevista encerrada. Revise sua performance.'
+                : 'Pronto para conduzir a próxima simulação.';
 
   const formattedRecordingTime = `${String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:${String(recordingSeconds % 60).padStart(2, '0')}`;
 
@@ -390,14 +395,12 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
     if (lastAutoPlayedPromptRef.current === promptKey) return;
 
     lastAutoPlayedPromptRef.current = promptKey;
-    setRecordingStatus('Ouça a pergunta e comece sua resposta quando a fala terminar.');
 
     if (currentPrompt.audio_url) {
       playQuestionAudio(currentPrompt.audio_url);
-      return;
+    } else {
+      setIsPlaying(false);
     }
-
-    setIsPlaying(false);
   }, [currentPrompt, interview?.id, playQuestionAudio, showEvaluation]);
 
   const startInterview = async () => {
@@ -430,18 +433,20 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
   const startRecording = async () => {
     if (isRecording || isPlaying || !interview || showEvaluation) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      setErrorMessage('Este navegador não oferece captura de microfone para a simulação.');
+      setErrorMessage('Este navegador não suporta gravação de áudio. Use Chrome, Firefox ou Edge.');
+      setShowTextInput(true);
       return;
     }
 
     setErrorMessage('');
-    setSttNotice('');
+    setTranscriptionReady(false);
+    setShowTextInput(false);
     setRecordingSeconds(0);
-    setRecordingStatus('Solicitando acesso ao microfone...');
     setAudioURL((prev) => {
       revokeAudioURL(prev);
       return null;
     });
+    setCurrentAnswer('');
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -456,22 +461,21 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
         }
       };
 
-      mediaRecorder.onstop = () => {
+      mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const url = URL.createObjectURL(audioBlob);
         setAudioURL(url);
-        setRecordingStatus('Resposta capturada. Revise o texto ou envie para avaliação.');
         stopTracks();
+        await transcribeAudio(audioBlob);
       };
 
       mediaRecorder.start();
       setIsRecording(true);
-      setRecordingStatus('Gravando sua resposta. Encerre quando concluir sua linha de raciocínio.');
     } catch (error) {
       console.error('Failed to start recording:', error);
       stopTracks();
-      setRecordingStatus('Microfone indisponível. Digite sua resposta manualmente.');
-      setErrorMessage('Não foi possível acessar o microfone. Libere a permissão ou responda por texto.');
+      setErrorMessage('Microfone indisponível. Digite sua resposta manualmente.');
+      setShowTextInput(true);
     }
   };
 
@@ -479,46 +483,46 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
     if (!mediaRecorderRef.current || !isRecording) return;
     mediaRecorderRef.current.stop();
     setIsRecording(false);
-    setRecordingStatus('Encerrando captura de áudio...');
+  };
+
+  const transcribeAudio = async (audioBlob: Blob) => {
+    setLoading(true);
+    setErrorMessage('');
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'answer.webm');
+      const sttResponse = await apiClient.post('/voice/stt/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      if (sttResponse.data.text) {
+        setCurrentAnswer(sttResponse.data.text);
+        setTranscriptionReady(true);
+      } else {
+        setErrorMessage('Não consegui transcrever o áudio. Digite sua resposta manualmente.');
+        setShowTextInput(true);
+      }
+    } catch (error) {
+      console.error('STT failed:', error);
+      setErrorMessage('Transcrição automática falhou. Digite sua resposta.');
+      setShowTextInput(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const submitAnswer = async () => {
     if (!interview || !currentPrompt) return;
 
-    let answerText = currentAnswer.trim();
-
-    if (!answerText && audioURL) {
-      setLoading(true);
-      setSttNotice('Transcrevendo a resposta em voz antes da avaliação...');
-      setErrorMessage('');
-      try {
-        const audioBlob = await fetch(audioURL).then((r) => r.blob());
-        const formData = new FormData();
-        formData.append('audio', audioBlob, 'answer.webm');
-        const sttResponse = await apiClient.post('/voice/stt/', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-
-        if (sttResponse.data.text) {
-          answerText = sttResponse.data.text;
-          setCurrentAnswer(answerText);
-          setSttNotice('Transcrição concluída. A resposta seguirá para avaliação.');
-        }
-      } catch (error) {
-        console.error('STT failed:', error);
-        setSttNotice('A transcrição automática falhou. Edite sua resposta manualmente antes de enviar.');
-      } finally {
-        setLoading(false);
-      }
-    }
-
+    const answerText = currentAnswer.trim();
     if (!answerText) {
-      setErrorMessage('Grave ou digite sua resposta antes de enviar para avaliação.');
+      setErrorMessage('Grave ou digite sua resposta antes de enviar.');
       return;
     }
 
     setLoading(true);
     setErrorMessage('');
+    setTranscriptionReady(false);
     try {
       const response = await apiClient.post('/interview/answer/', {
         interview_id: interview.id,
@@ -530,11 +534,9 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
       setShowEvaluation(true);
       setInterview(payload.interview);
       setConversation(payload.conversation || null);
-      setCurrentAnswer(answerText);
-      setRecordingStatus('Feedback pronto. Revise antes de avançar.');
     } catch (error) {
       console.error('Failed to submit answer:', error);
-      setErrorMessage('Não foi possível enviar a resposta. Seu texto foi preservado para tentar novamente.');
+      setErrorMessage('Não foi possível enviar a resposta. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -560,7 +562,7 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
               Entrevista técnica em modo conversacional
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              A IA conduz a entrevista com voz sintetizada, você responde em turno único, encerra sua fala e recebe avaliação logo em seguida.
+              A IA conduz a entrevista com voz sintetizada, você responde gravando sua fala e recebe avaliação logo em seguida.
             </p>
           </div>
           <StageBadge stage={voiceStage} />
@@ -668,16 +670,16 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
               />
               <div className="mt-6 grid gap-3 text-sm text-slate-300">
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950">1. A IA abre a sessão</div>
-                  <p className="text-sm leading-6 text-slate-950">Ela se apresenta, contextualiza a dinâmica e faz a pergunta em voz alta.</p>
+                  <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950">1. A IA faz a pergunta</div>
+                  <p className="text-sm leading-6 text-slate-950">Ela se apresenta e pergunta em voz alta. Você ouve a pergunta completa.</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950">2. Sua vez de falar</div>
-                  <p className="text-sm leading-6 text-slate-950">Você inicia a gravação, responde em voz alta e encerra sua fala quando terminar.</p>
+                  <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950">2. Grave sua resposta</div>
+                  <p className="text-sm leading-6 text-slate-950">Aperte o microfone, responda em voz alta e encerre a gravação quando terminar.</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950">3. Feedback imediato</div>
-                  <p className="text-sm leading-6 text-slate-950">A resposta é transcrita, avaliada e a próxima pergunta entra no fluxo automaticamente.</p>
+                  <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950">3. Confirme e envie</div>
+                  <p className="text-sm leading-6 text-slate-950">A transcrição aparece para você revisar. Edite se necessário e envie para avaliação.</p>
                 </div>
               </div>
             </section>
@@ -689,7 +691,7 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
             <section className="rounded-[32px] border border-slate-200 bg-[radial-gradient(circle_at_top,rgba(107,47,250,0.18),rgba(18,14,32,0.98)_32%,rgba(8,6,18,1)_100%)] p-6 shadow-[0_28px_80px_rgba(15,23,42,0.16)] sm:p-8">
               <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                    <div className="text-xs font-black uppercase tracking-[0.2em] text-violet-200/90">Sala de entrevista</div>
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-violet-200/90">Sala de entrevista</div>
                   <h2 className="mt-2 text-2xl font-black text-white">{interview.job_role}</h2>
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
                     {currentPrompt?.text || 'Aguardando a próxima pergunta.'}
@@ -716,46 +718,73 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
 
               <OrbAssistant stage={voiceStage} interviewerName={interviewerName} subtitle={orbSubtitle} />
 
-              <div className="mt-8 flex flex-wrap gap-3">
-                <button
-                  onClick={() => currentPrompt?.audio_url && playQuestionAudio(currentPrompt.audio_url)}
-                  disabled={!currentPrompt?.audio_url || loading}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-violet-300/20 bg-violet-500/10 px-4 py-3 text-sm font-bold text-violet-100 transition hover:bg-violet-500/15 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Volume2 size={16} />
-                  Ouvir novamente
-                </button>
+              <div className="mt-8 flex flex-col items-center gap-4">
+                {!showEvaluation && voiceStage === 'candidate_ready' && (
+                  <motion.button
+                    onClick={startRecording}
+                    disabled={loading || isPlaying || isCompleted}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-lg shadow-fuchsia-500/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Mic size={32} />
+                  </motion.button>
+                )}
 
-                {!showEvaluation && (
-                  <>
-                    {!isRecording ? (
+                {!showEvaluation && voiceStage === 'listening' && (
+                  <motion.button
+                    onClick={stopRecording}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/30"
+                  >
+                    <MicOff size={32} />
+                  </motion.button>
+                )}
+
+                {voiceStage === 'listening' && (
+                  <div className="flex items-center gap-3 text-sm font-bold text-fuchsia-200">
+                    <motion.div
+                      className="h-3 w-3 rounded-full bg-fuchsia-400"
+                      animate={{ opacity: [1, 0.3, 1] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                    />
+                    {formattedRecordingTime}
+                  </div>
+                )}
+
+                {!showEvaluation && !isRecording && (
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      onClick={() => currentPrompt?.audio_url && playQuestionAudio(currentPrompt.audio_url)}
+                      disabled={!currentPrompt?.audio_url || loading}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-violet-300/20 bg-violet-500/10 px-4 py-3 text-sm font-bold text-violet-100 transition hover:bg-violet-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Volume2 size={16} />
+                      Ouvir novamente
+                    </button>
+
+                    {transcriptionReady && (
                       <button
-                        onClick={startRecording}
-                        disabled={loading || isPlaying || isCompleted}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/10 px-4 py-3 text-sm font-bold text-fuchsia-100 transition hover:bg-fuchsia-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={submitAnswer}
+                        disabled={loading || !currentAnswer.trim()}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#7c3aed,#4f46e5)] px-4 py-3 text-sm font-black text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        <Mic size={16} />
-                        Começar resposta
-                      </button>
-                    ) : (
-                      <button
-                        onClick={stopRecording}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-100 transition hover:bg-rose-500/15"
-                      >
-                        <MicOff size={16} />
-                        Encerrar fala
+                        {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
+                        Enviar resposta
                       </button>
                     )}
 
-                    <button
-                      onClick={submitAnswer}
-                      disabled={loading || isRecording || (!currentAnswer.trim() && !audioURL)}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#7c3aed,#4f46e5)] px-4 py-3 text-sm font-black text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-                      Enviar para avaliação
-                    </button>
-                  </>
+                    {showTextInput && (
+                      <button
+                        onClick={() => setShowTextInput(true)}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-slate-300/20 bg-slate-500/10 px-4 py-3 text-sm font-bold text-slate-300 transition hover:bg-slate-500/15"
+                      >
+                        <Keyboard size={16} />
+                        Digitar resposta
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {showEvaluation && (
@@ -771,38 +800,71 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
             </section>
 
             <section className="space-y-6">
-              <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Turno atual</div>
-                    <h3 className="mt-1 text-lg font-black text-slate-900">Resposta do candidato</h3>
+              {transcriptionReady && !showEvaluation && (
+                <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Transcrição</div>
+                      <h3 className="mt-1 text-lg font-black text-slate-900">Revise sua resposta</h3>
+                    </div>
+                    <button
+                      onClick={() => setShowTextInput(true)}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
+                    >
+                      <Pencil size={12} />
+                      Editar
+                    </button>
                   </div>
-                  <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-black text-slate-700">
-                    <Clock size={16} className="text-violet-300" />
-                    {formattedRecordingTime}
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm leading-6 text-slate-700">{currentAnswer}</p>
+                  </div>
+
+                  {audioURL && (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">Sua gravação</div>
+                      <audio src={audioURL} controls className="w-full" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {showTextInput && !showEvaluation && (
+                <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Resposta manual</div>
+                      <h3 className="mt-1 text-lg font-black text-slate-900">Digite sua resposta</h3>
+                    </div>
+                    {transcriptionReady && (
+                      <button
+                        onClick={() => setShowTextInput(false)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
+                      >
+                        Voltar para transcrição
+                      </button>
+                    )}
+                  </div>
+
+                  <textarea
+                    value={currentAnswer}
+                    onChange={(e) => setCurrentAnswer(e.target.value)}
+                    placeholder="Digite sua resposta aqui..."
+                    className="h-40 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-violet-400/40"
+                  />
+
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={submitAnswer}
+                      disabled={loading || !currentAnswer.trim()}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#7c3aed,#4f46e5)] px-4 py-3 text-sm font-black text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
+                      Enviar resposta
+                    </button>
                   </div>
                 </div>
-
-                <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">Estado da captura</div>
-                  <p className="text-sm leading-6 text-slate-700">{recordingStatus}</p>
-                  {sttNotice && <p className="mt-2 text-xs font-semibold text-violet-200/85">{sttNotice}</p>}
-                </div>
-
-                <textarea
-                  value={currentAnswer}
-                  onChange={(e) => setCurrentAnswer(e.target.value)}
-                  placeholder="Sua transcrição aparece aqui. Você pode editar antes de enviar."
-                  className="h-48 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-violet-400/40"
-                />
-
-                {audioURL && (
-                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">Prévia do áudio</div>
-                    <audio src={audioURL} controls className="w-full" />
-                  </div>
-                )}
-              </div>
+              )}
 
               <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
                 <div className="mb-4 flex items-center gap-2">
@@ -828,7 +890,7 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                       <div className="text-xs font-black uppercase tracking-[0.18em] text-emerald-100/70">Avaliação da resposta</div>
                       <h3 className="mt-1 text-xl font-black text-white">Nota {evaluation.score.toFixed(1)}</h3>
                     </div>
-                <div className="rounded-2xl bg-emerald-300/10 px-4 py-3 text-sm font-black text-emerald-50">
+                    <div className="rounded-2xl bg-emerald-300/10 px-4 py-3 text-sm font-black text-emerald-50">
                       Feedback imediato
                     </div>
                   </div>
@@ -864,7 +926,7 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
               )}
 
               {isCompleted && interview && (
-              <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+                <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
                   <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Resumo da sessão</div>
                   <div className="mt-2 text-2xl font-black text-slate-900">{interview.average_score.toFixed(1)}</div>
                   <p className="mt-2 text-sm leading-6 text-slate-700">
