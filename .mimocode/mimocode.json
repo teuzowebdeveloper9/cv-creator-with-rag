@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cv_generator": {
+      "type": "local",
+      "command": ["node", "mcp-servers/cv-generator/dist/index.js"],
+      "environment": {"CV_BACKEND_URL": "http://localhost:8000"},
+      "enabled": true
+    }
+  }
+}
