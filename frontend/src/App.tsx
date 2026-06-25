@@ -1,395 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import type { AxiosError } from 'axios';
-import { 
-  Upload, 
-  FileText, 
-  Loader2, 
-  Database, 
-  Sparkles, 
-  CheckCircle2, 
-  AlertCircle,
-  Copy,
-  Edit3,
-  ChevronRight,
-  FolderOpen,
-  FileCode,
-  Save,
-  Wand2,
-  X,
-  History,
-  Download,
-  LayoutDashboard,
-  Info,
-  Mic,
-  LogOut,
-  UserPlus,
-  LogIn,
-  ShieldCheck,
-  Target
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  AlertCircle, CheckCircle2, ChevronRight, Copy, Database, Download,
+  Edit3, FileCode, FileText, FolderOpen, History, Info, LayoutDashboard,
+  Loader2, Save, Sparkles, Upload, Wand2, X
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import RagCvLogo from './components/RagCvLogo';
+import { apiClient, API_BASE_URL, jsonHeadersWithCSRF, extractErrorMessage, extractJsonErrorMessage, requestFirstAvailable, authEndpointCandidates } from './api/client';
+import type { AuthState, ProfileData, ProviderStatus, UploadQueue, DocumentRecord } from './api/client';
+import { Button, Card } from './components/ui';
+import { AuthShell } from './components/AuthShell';
+import { Header } from './components/Header';
+import { ProfileModal } from './components/ProfileModal';
+import { HistoryPage } from './components/HistoryPage';
 import InterviewPage from './components/InterviewPage';
 import DebatePage from './components/debate/DebatePage';
-
-const resolveApiBaseUrl = () => {
-  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
-  if (configuredBase) {
-    return configuredBase.replace(/\/+$/, '');
-  }
-
-  if (typeof window === 'undefined') {
-    return 'http://localhost:8000/api';
-  }
-
-  const { protocol, hostname, port } = window.location;
-  if (port === '5173') {
-    return `${protocol}//${hostname}:8000/api`;
-  }
-
-  return `${window.location.origin.replace(/\/+$/, '')}/api`;
-};
-
-const API_BASE_URL = resolveApiBaseUrl();
-
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true,
-  xsrfCookieName: 'csrftoken',
-  xsrfHeaderName: 'X-CSRFToken',
-});
-
-let csrfTokenCache = '';
-
-const setCSRFToken = (token: unknown) => {
-  if (typeof token === 'string' && token.trim()) {
-    csrfTokenCache = token.trim();
-  }
-};
-
-const getCSRFToken = () => csrfTokenCache || getCookieValue('csrftoken');
-
-const getCookieValue = (name: string) => {
-  if (typeof document === 'undefined') return '';
-  const encodedName = `${encodeURIComponent(name)}=`;
-  const cookie = document.cookie
-    .split('; ')
-    .find((row) => row.startsWith(encodedName));
-
-  return cookie ? decodeURIComponent(cookie.slice(encodedName.length)) : '';
-};
-
-const jsonHeadersWithCSRF = (): Record<string, string> => {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const csrfToken = getCSRFToken();
-  if (csrfToken) headers['X-CSRFToken'] = csrfToken;
-  return headers;
-};
-
-apiClient.interceptors.request.use((config) => {
-  const method = (config.method || 'get').toLowerCase();
-  if (['post', 'put', 'patch', 'delete'].includes(method)) {
-    const csrfToken = getCSRFToken();
-    if (csrfToken) {
-      config.headers = config.headers || {};
-      config.headers['X-CSRFToken'] = csrfToken;
-    }
-  }
-  return config;
-});
-
-apiClient.interceptors.response.use((response) => {
-  const data = response.data as Record<string, unknown> | undefined;
-  setCSRFToken(data?.csrf_token);
-  return response;
-});
-
-const extractJsonErrorMessage = async (response: Response, fallback: string) => {
-  try {
-    const data = await response.json();
-    if (typeof data?.error === 'string' && data.error.trim()) return data.error;
-    if (typeof data?.detail === 'string' && data.detail.trim()) return data.detail;
-    if (typeof data?.message === 'string' && data.message.trim()) return data.message;
-  } catch { }
-
-  return fallback;
-};
-
-const authEndpointCandidates = {
-  session: ['/auth/session/', '/session/', '/users/session/'],
-  login: ['/auth/login/', '/login/', '/users/login/'],
-  register: ['/auth/register/', '/register/', '/users/register/'],
-  logout: ['/auth/logout/', '/logout/', '/users/logout/'],
-};
-
-interface AuthUser {
-  id?: number;
-  username?: string;
-  email?: string;
-  full_name?: string;
-}
-
-interface AuthState {
-  user: AuthUser | null;
-  checked: boolean;
-  loading: boolean;
-  error: string;
-}
-
-const extractErrorMessage = (error: unknown, fallback: string) => {
-  if (axios.isAxiosError(error)) {
-    const data = error.response?.data as Record<string, unknown> | undefined;
-    const directMessage = data?.detail || data?.error || data?.message;
-    if (typeof directMessage === 'string') return directMessage;
-    if (Array.isArray(data?.non_field_errors)) return data.non_field_errors.join(' ');
-    const fieldMessages = Object.values(data || {})
-      .flatMap(value => Array.isArray(value) ? value : typeof value === 'string' ? [value] : [])
-      .filter(Boolean);
-    return fieldMessages.join(' ') || fallback;
-  }
-  return error instanceof Error ? error.message : fallback;
-};
-
-const requestFirstAvailable = async <T,>(
-  endpoints: string[],
-  options: { method?: 'get' | 'post'; data?: unknown; allowNotFound?: boolean } = {},
-) => {
-  let notFound = false;
-  for (const endpoint of endpoints) {
-    try {
-      const method = options.method || 'get';
-      const response = method === 'post'
-        ? await apiClient.post<T>(endpoint, options.data || {})
-        : await apiClient.get<T>(endpoint);
-      return response.data;
-    } catch (error) {
-      const status = (error as AxiosError).response?.status;
-      if (status === 404) {
-        notFound = true;
-        continue;
-      }
-      throw error;
-    }
-  }
-  if (options.allowNotFound && notFound) return null;
-  throw new Error('A API de autenticação ainda não está disponível neste backend.');
-};
-
-// --- Improved Shared Components ---
-
-interface CardProps {
-  children: React.ReactNode;
-  className?: string;
-  hoverable?: boolean;
-}
-
-const Card: React.FC<CardProps> = ({ children, className = "", hoverable = false }) => (
-  <motion.div 
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    whileHover={hoverable ? { y: -4, shadow: "0 12px 40px rgba(0,0,0,0.08)" } : {}}
-    className={`glass-card rounded-[2.5rem] p-8 transition-shadow duration-300 ${className}`}
-  >
-    {children}
-  </motion.div>
-);
-
-interface ButtonProps {
-  children: React.ReactNode;
-  onClick?: () => void;
-  type?: "button" | "submit";
-  disabled?: boolean;
-  loading?: boolean;
-  variant?: "primary" | "secondary" | "ghost" | "danger" | "success";
-  className?: string;
-  size?: "sm" | "md" | "lg";
-}
-
-const Button: React.FC<ButtonProps> = ({ children, onClick, type = "button", disabled, loading, variant = "primary", className = "", size = "md" }) => {
-  const variants = {
-    primary: "bg-indigo-600 text-white shadow-indigo-200 hover:bg-indigo-700 hover:shadow-indigo-300",
-    secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-sm",
-    ghost: "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-    danger: "bg-rose-50 text-rose-600 hover:bg-rose-100",
-    success: "bg-emerald-600 text-white shadow-emerald-200 hover:bg-emerald-700"
-  };
-
-  const sizes = {
-    sm: "px-4 py-2 text-xs rounded-xl gap-1.5",
-    md: "px-6 py-3.5 text-sm rounded-2xl gap-2",
-    lg: "px-8 py-4 text-base rounded-[1.25rem] gap-2.5"
-  };
-
-  return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={`interactive-button flex items-center justify-center font-bold tracking-tight shadow-md ${variants[variant]} ${sizes[size]} ${className}`}
-    >
-      {loading ? <Loader2 className="animate-spin" size={size === 'sm' ? 14 : 18} /> : children}
-    </button>
-  );
-};
-
-interface AuthShellProps {
-  auth: AuthState;
-  onLogin: (email: string, password: string) => Promise<void>;
-  onRegister: (email: string, password: string, fullName: string) => Promise<void>;
-}
-
-const AuthShell: React.FC<AuthShellProps> = ({ auth, onLogin, onRegister }) => {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (mode === 'register') {
-      await onRegister(email.trim(), password, fullName.trim());
-      return;
-    }
-    await onLogin(email.trim(), password);
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 selection:bg-indigo-100 selection:text-indigo-900">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col justify-center gap-8 lg:grid lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-        <section className="space-y-8">
-          <RagCvLogo size={52} showText />
-          <div className="max-w-2xl">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-white px-4 py-2 text-xs font-black uppercase text-indigo-600 shadow-sm">
-              <ShieldCheck size={16} />
-              Sessão protegida
-            </div>
-            <h1 className="text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
-              Entre para gerar CVs e treinar entrevistas com seu histórico salvo.
-            </h1>
-            <p className="mt-5 max-w-xl text-base font-medium leading-7 text-slate-500">
-              A sessão é recuperada no refresh e todas as chamadas da aplicação usam credenciais para manter seus documentos, perfil e entrevistas vinculados ao usuário autenticado.
-            </p>
-          </div>
-        </section>
-
-        <motion.form
-          onSubmit={submit}
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-[2rem] border border-white bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.12)] sm:p-8"
-        >
-          <div className="mb-6 flex rounded-2xl bg-slate-100 p-1">
-            <button
-              type="button"
-              onClick={() => setMode('login')}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-black transition-all ${mode === 'login' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-            >
-              <LogIn size={16} />
-              Login
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('register')}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-black transition-all ${mode === 'register' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-            >
-              <UserPlus size={16} />
-              Cadastro
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {mode === 'register' && (
-              <div>
-                <label className="mb-2 block text-xs font-black uppercase text-slate-400">Nome</label>
-                <input
-                  value={fullName}
-                  onChange={(event) => setFullName(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
-                  placeholder="Seu nome"
-                  autoComplete="name"
-                />
-              </div>
-            )}
-            <div>
-              <label className="mb-2 block text-xs font-black uppercase text-slate-400">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
-                placeholder="voce@email.com"
-                autoComplete="email"
-                required
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-xs font-black uppercase text-slate-400">Senha</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none transition-all focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
-                placeholder="Minimo 8 caracteres"
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                required
-              />
-            </div>
-          </div>
-
-          {auth.error && (
-            <div className="mt-5 flex gap-3 rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
-              <AlertCircle className="mt-0.5 shrink-0" size={18} />
-              <span>{auth.error}</span>
-            </div>
-          )}
-
-          <Button type="submit" loading={auth.loading} className="mt-6 w-full" size="lg">
-            {mode === 'register' ? <UserPlus size={18} /> : <LogIn size={18} />}
-            {mode === 'register' ? 'Criar conta' : 'Entrar'}
-          </Button>
-        </motion.form>
-      </div>
-    </div>
-  );
-};
-
-// --- Interfaces ---
-
-interface UploadQueue {
-  active: boolean;
-  total: number;
-  current: number;
-  success: number;
-  error: number;
-  logs: string[];
-}
-
-interface ProviderStatus {
-  [key: string]: boolean;
-}
-
-interface DocumentRecord {
-  id: number;
-  name: string;
-  status: 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED';
-  error_message?: string;
-  created_at: string;
-}
-
-interface ProfileData {
-  full_name: string;
-  email: string;
-  phone: string;
-  linkedin: string;
-  github: string;
-  portfolio: string;
-  city: string;
-  summary: string;
-  photo_url: string;
-}
-
-// --- Main App Component ---
 
 function App() {
   const [auth, setAuth] = useState<AuthState>({ user: null, checked: false, loading: true, error: '' });
@@ -410,39 +34,28 @@ function App() {
   const [downloading, setDownloading] = useState<boolean>(false);
   const [showProfile, setShowProfile] = useState<boolean>(false);
   const [activePage, setActivePage] = useState<'cv' | 'interview' | 'debate' | 'history'>('cv');
-  const [generatedCVs, setGeneratedCVs] = useState<{id: number; file_name: string; job_description: string; created_at: string}[]>([]);
-  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
-  const [previewingCV, setPreviewingCV] = useState<{id: number; file_name: string; url: string} | null>(null);
   const [profile, setProfile] = useState<ProfileData>({
     full_name: '', email: '', phone: '', linkedin: '', github: '',
     portfolio: '', city: '', summary: '', photo_url: ''
   });
   const [photoUploading, setPhotoUploading] = useState<boolean>(false);
-  
   const [uploadQueue, setUploadQueue] = useState<UploadQueue>({
-    active: false,
-    total: 0,
-    current: 0,
-    success: 0,
-    error: 0,
-    logs: []
+    active: false, total: 0, current: 0, success: 0, error: 0, logs: []
   });
 
   const recoverSession = async () => {
     setAuth(prev => ({ ...prev, loading: true, error: '' }));
     try {
-      const data = await requestFirstAvailable<{ user?: AuthUser } | AuthUser | null>(
+      const data = await requestFirstAvailable<{ user?: { id?: number; username?: string; email?: string; full_name?: string } } | { id?: number; username?: string; email?: string; full_name?: string } | null>(
         authEndpointCandidates.session,
         { allowNotFound: true },
       );
       const user = data && 'user' in data ? data.user || null : data;
       setAuth({ user: user || null, checked: true, loading: false, error: '' });
     } catch (error) {
-      const status = (error as AxiosError).response?.status;
+      const status = (error as { response?: { status?: number } }).response?.status;
       setAuth({
-        user: null,
-        checked: true,
-        loading: false,
+        user: null, checked: true, loading: false,
         error: status === 401 ? '' : extractErrorMessage(error, 'Não foi possível recuperar sua sessão.'),
       });
     }
@@ -451,36 +64,26 @@ function App() {
   const handleLogin = async (email: string, password: string) => {
     setAuth(prev => ({ ...prev, loading: true, error: '' }));
     try {
-      const data = await requestFirstAvailable<{ user?: AuthUser } | AuthUser>(authEndpointCandidates.login, {
-        method: 'post',
-        data: { email, username: email, password },
+      const data = await requestFirstAvailable<{ user?: { id?: number; username?: string; email?: string; full_name?: string } } | { id?: number; username?: string; email?: string; full_name?: string }>(authEndpointCandidates.login, {
+        method: 'post', data: { email, username: email, password },
       });
       const user = data && 'user' in data ? data.user : data;
       setAuth({ user: user || { email }, checked: true, loading: false, error: '' });
     } catch (error) {
-      setAuth(prev => ({
-        ...prev,
-        loading: false,
-        error: extractErrorMessage(error, 'Não foi possível entrar. Verifique suas credenciais.'),
-      }));
+      setAuth(prev => ({ ...prev, loading: false, error: extractErrorMessage(error, 'Não foi possível entrar. Verifique suas credenciais.') }));
     }
   };
 
   const handleRegister = async (email: string, password: string, fullName: string) => {
     setAuth(prev => ({ ...prev, loading: true, error: '' }));
     try {
-      const data = await requestFirstAvailable<{ user?: AuthUser } | AuthUser>(authEndpointCandidates.register, {
-        method: 'post',
-        data: { email, username: email, password, full_name: fullName, name: fullName },
+      const data = await requestFirstAvailable<{ user?: { id?: number; username?: string; email?: string; full_name?: string } } | { id?: number; username?: string; email?: string; full_name?: string }>(authEndpointCandidates.register, {
+        method: 'post', data: { email, username: email, password, full_name: fullName, name: fullName },
       });
       const user = data && 'user' in data ? data.user : data;
       setAuth({ user: user || { email, full_name: fullName }, checked: true, loading: false, error: '' });
     } catch (error) {
-      setAuth(prev => ({
-        ...prev,
-        loading: false,
-        error: extractErrorMessage(error, 'Não foi possível criar sua conta.'),
-      }));
+      setAuth(prev => ({ ...prev, loading: false, error: extractErrorMessage(error, 'Não foi possível criar sua conta.') }));
     }
   };
 
@@ -492,21 +95,13 @@ function App() {
       console.error('Logout failed:', error);
     } finally {
       setAuth({ user: null, checked: true, loading: false, error: '' });
-      setGeneratedCV('');
-      setEditableCV('');
-      setPdfPreviewUrl('');
-      setDocuments([]);
-      setGeneratedCVs([]);
-      setPreviewingCV(null);
-      setActivePage('cv');
+      setGeneratedCV(''); setEditableCV(''); setPdfPreviewUrl('');
+      setDocuments([]); setActivePage('cv');
     }
   };
 
   const addLog = (msg: string) => {
-    setUploadQueue(prev => ({
-      ...prev,
-      logs: [msg, ...prev.logs].slice(0, 5)
-    }));
+    setUploadQueue(prev => ({ ...prev, logs: [msg, ...prev.logs].slice(0, 5) }));
   };
 
   const fetchDocuments = async () => {
@@ -519,65 +114,6 @@ function App() {
     }
   };
 
-  const fetchGeneratedCVs = async () => {
-    setHistoryLoading(true);
-    try {
-      const response = await apiClient.get('/generated-cvs/');
-      setGeneratedCVs(response.data);
-    } catch (error) {
-      console.error("Erro ao buscar CVs gerados:", error);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const deleteGeneratedCV = async (cvId: number) => {
-    try {
-      await apiClient.delete(`/generated-cvs/${cvId}/`);
-      setGeneratedCVs(prev => prev.filter(cv => cv.id !== cvId));
-      if (previewingCV?.id === cvId) setPreviewingCV(null);
-      setUploadStatus({ type: 'success', message: 'CV excluído com sucesso.' });
-    } catch (error) {
-      setUploadStatus({ type: 'error', message: 'Erro ao excluir CV.' });
-    }
-  };
-
-  const previewGeneratedCV = async (cvId: number, fileName: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/generated-cvs/${cvId}/serve/`, {
-        credentials: 'include',
-        headers: jsonHeadersWithCSRF(),
-      });
-      if (!response.ok) throw new Error('Falha ao carregar PDF');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-      setPreviewingCV({ id: cvId, file_name: fileName, url });
-    } catch {
-      setUploadStatus({ type: 'error', message: 'Erro ao visualizar PDF.' });
-    }
-  };
-
-  const downloadGeneratedCV = async (cvId: number, fileName: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/generated-cvs/${cvId}/serve/`, {
-        credentials: 'include',
-        headers: jsonHeadersWithCSRF(),
-      });
-      if (!response.ok) throw new Error('Falha ao baixar PDF');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName.replace(/\.pdf$/, '') + '.pdf';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-    } catch {
-      setUploadStatus({ type: 'error', message: 'Erro ao baixar PDF.' });
-    }
-  };
-
   const fetchProfile = async () => {
     try {
       const response = await apiClient.get('/profile/');
@@ -585,9 +121,7 @@ function App() {
       if (data.photo_url) {
         if (data.photo_url.startsWith('http')) {
           const match = data.photo_url.match(/\/api\/api\/profile\/photo\/file\/(.+)$/);
-          if (match) {
-            data.photo_url = `/api/profile/photo/file/${match[1]}`;
-          }
+          if (match) data.photo_url = `/api/profile/photo/file/${match[1]}`;
         } else if (!data.photo_url.startsWith('/')) {
           data.photo_url = `/api/profile/photo/file/${data.photo_url}`;
         }
@@ -611,11 +145,9 @@ function App() {
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setPhotoUploading(true);
     const formData = new FormData();
     formData.append('photo', file);
-
     try {
       const response = await apiClient.post('/profile/photo/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -629,9 +161,7 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    recoverSession();
-  }, []);
+  useEffect(() => { recoverSession(); }, []);
 
   useEffect(() => {
     if (!auth.user) return;
@@ -651,44 +181,27 @@ function App() {
     };
     fetchProviderStatus();
     fetchDocuments();
-    const interval = setInterval(() => {
-      fetchProviderStatus();
-      fetchDocuments();
-    }, 5000);
+    const interval = setInterval(() => { fetchProviderStatus(); fetchDocuments(); }, 5000);
     return () => clearInterval(interval);
   }, [auth.user]);
 
   useEffect(() => {
     return () => {
-      if (pdfPreviewUrl) {
-        window.URL.revokeObjectURL(pdfPreviewUrl);
-      }
+      if (pdfPreviewUrl) window.URL.revokeObjectURL(pdfPreviewUrl);
     };
   }, [pdfPreviewUrl]);
 
-  useEffect(() => {
-    if (auth.user && activePage === 'history') {
-      fetchGeneratedCVs();
-    }
-  }, [auth.user, activePage]);
-
   const createPDFBlobUrl = async (markdown: string): Promise<string> => {
     const response = await fetch(`${API_BASE_URL}/download-pdf/`, {
-      method: 'POST',
-      credentials: 'include',
+      method: 'POST', credentials: 'include',
       headers: jsonHeadersWithCSRF(),
       body: JSON.stringify({ markdown, photo_url: profile.photo_url || '', job_description: jobDescription }),
     });
-
     if (!response.ok) {
       let message = 'Falha ao montar o PDF.';
-      try {
-        const data = await response.json();
-        if (data.error) message = data.error;
-      } catch { }
+      try { const data = await response.json(); if (data.error) message = data.error; } catch { }
       throw new Error(message);
     }
-
     const blob = await response.blob();
     return window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
   };
@@ -715,12 +228,10 @@ function App() {
     try {
       const url = pdfPreviewUrl || (await refreshPDFPreview(generatedCV));
       const a = document.createElement('a');
-      a.href = url;
-      a.download = 'curriculo.pdf';
-      document.body.appendChild(a);
-      a.click();
+      a.href = url; a.download = 'curriculo.pdf';
+      document.body.appendChild(a); a.click();
       document.body.removeChild(a);
-    } catch (error) {
+    } catch {
       setUploadStatus({ type: 'error', message: 'Erro ao baixar o PDF.' });
     } finally {
       setDownloading(false);
@@ -762,21 +273,13 @@ function App() {
     setPdfError('');
     try {
       const response = await fetch(`${API_BASE_URL}/update-cv/`, {
-        method: 'POST',
-        credentials: 'include',
+        method: 'POST', credentials: 'include',
         headers: jsonHeadersWithCSRF(),
-        body: JSON.stringify({
-          current_cv: markdown,
-          edit_instruction: instruction,
-          job_description: jobDescription,
-        }),
+        body: JSON.stringify({ current_cv: markdown, edit_instruction: instruction, job_description: jobDescription }),
       });
       if (!response.ok) {
         let message = 'Falha ao atualizar o CV com IA.';
-        try {
-          const data = await response.json();
-          if (data.error) message = data.error;
-        } catch { }
+        try { const data = await response.json(); if (data.error) message = data.error; } catch { }
         throw new Error(message);
       }
       const data = await response.json();
@@ -798,22 +301,14 @@ function App() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files);
-      setFiles(selectedFiles);
+      setFiles(Array.from(e.target.files));
       setUploadStatus({ type: '', message: '' });
     }
   };
 
   const handleUpload = async () => {
     if (files.length === 0) return;
-    setUploadQueue({
-      active: true,
-      total: files.length,
-      current: 0,
-      success: 0,
-      error: 0,
-      logs: [`Iniciando processamento de ${files.length} arquivos...`]
-    });
+    setUploadQueue({ active: true, total: files.length, current: 0, success: 0, error: 0, logs: [`Iniciando processamento de ${files.length} arquivos...`] });
     setLoading(true);
     let successCount = 0;
     let errorCount = 0;
@@ -827,7 +322,7 @@ function App() {
         await apiClient.post('/upload/', formData);
         successCount++;
         setUploadQueue(prev => ({ ...prev, success: successCount }));
-      } catch (error) {
+      } catch {
         errorCount++;
         setUploadQueue(prev => ({ ...prev, error: errorCount }));
         addLog(`Erro: ${file.name}`);
@@ -836,10 +331,7 @@ function App() {
     setLoading(false);
     setFiles([]);
     setTimeout(() => {
-      setUploadStatus({ 
-        type: successCount > 0 ? 'success' : 'error', 
-        message: `Finalizado: ${successCount} processados, ${errorCount} erros.` 
-      });
+      setUploadStatus({ type: successCount > 0 ? 'success' : 'error', message: `Finalizado: ${successCount} processados, ${errorCount} erros.` });
       setUploadQueue(prev => ({ ...prev, active: false }));
     }, 3000);
   };
@@ -856,13 +348,9 @@ function App() {
     setPdfLoading(false);
     try {
       const response = await fetch(`${API_BASE_URL}/generate/`, {
-        method: 'POST',
-        credentials: 'include',
+        method: 'POST', credentials: 'include',
         headers: jsonHeadersWithCSRF(),
-        body: JSON.stringify({ 
-          job_description: jobDescription,
-          profile_data: { ...profile, photo_url: profile.photo_url || '' },
-        }),
+        body: JSON.stringify({ job_description: jobDescription, profile_data: { ...profile, photo_url: profile.photo_url || '' } }),
       });
       if (!response.ok) {
         const message = await extractJsonErrorMessage(response, `Falha na geração (${response.status})`);
@@ -885,7 +373,7 @@ function App() {
           } else if (data.error) {
             setUploadStatus({ type: 'error', message: `Erro na IA: ${data.error}` });
           }
-        } catch (e) { }
+        } catch { }
       };
       while (!done) {
         const { value, done: doneReading } = await reader.read();
@@ -893,16 +381,12 @@ function App() {
         sseBuffer += decoder.decode(value, { stream: !doneReading });
         const events = sseBuffer.split('\n\n');
         sseBuffer = events.pop() || '';
-        for (const event of events) {
-          processEvent(event);
-        }
+        for (const event of events) { processEvent(event); }
       }
       if (sseBuffer.trim()) { processEvent(sseBuffer); }
       if (generatedMarkdown.trim()) {
         setEditableCV(generatedMarkdown);
-        try {
-          await refreshPDFPreview(generatedMarkdown);
-        } catch {
+        try { await refreshPDFPreview(generatedMarkdown); } catch {
           setUploadStatus({ type: 'error', message: 'Currículo gerado, mas o PDF não pôde ser montado.' });
         }
       }
@@ -929,705 +413,317 @@ function App() {
 
   return (
     <div className="min-h-screen selection:bg-indigo-100 selection:text-indigo-900">
-      
-      {/* Dynamic Background */}
       <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none -z-10 bg-slate-50">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-200/40 rounded-full blur-[120px] animate-float"></div>
         <div className="absolute bottom-[10%] right-[-5%] w-[35%] h-[35%] bg-violet-200/30 rounded-full blur-[100px] animate-float-delayed"></div>
         <div className="absolute top-[30%] left-[60%] w-[20%] h-[20%] bg-blue-100/40 rounded-full blur-[80px]"></div>
       </div>
 
-      <header className="max-w-[1440px] mx-auto px-8 py-10 flex justify-between items-center">
-        <motion.div 
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-8"
-        >
-          <div className="flex items-center gap-4">
-            <RagCvLogo size={44} showText />
-          </div>
+      <Header
+        providerStatus={providerStatus}
+        activePage={activePage}
+        onPageChange={setActivePage}
+        auth={auth}
+        profile={profile}
+        onProfileToggle={() => setShowProfile(!showProfile)}
+        onLogout={handleLogout}
+      />
 
-          <div className="hidden lg:flex items-center gap-4 pl-8 border-l border-slate-200">
-            {Object.entries(providerStatus).map(([name, available]) => (
-              <div key={name} className="flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-white/50 border border-white/60 shadow-sm backdrop-blur-sm">
-                <div className={`w-2 h-2 rounded-full ${available ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse' : 'bg-slate-300'}`}></div>
-                <span className={`text-[10px] font-black uppercase tracking-wider ${available ? 'text-slate-700' : 'text-slate-400'}`}>
-                  {name}
-                </span>
-              </div>
-            ))}
-          </div>
-        </motion.div>
+      <ProfileModal
+        show={showProfile}
+        onClose={() => setShowProfile(false)}
+        profile={profile}
+        onProfileChange={setProfile}
+        onSave={saveProfile}
+        onPhotoUpload={handlePhotoUpload}
+        photoUploading={photoUploading}
+      />
 
-        {/* Navigation Tabs */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-2 bg-white/50 backdrop-blur-sm rounded-2xl p-1 border border-white/60 shadow-sm"
-        >
-          <button
-            onClick={() => setActivePage('cv')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activePage === 'cv'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-indigo-600'
-            }`}
-          >
-            <FileText size={16} />
-            Currículo
-          </button>
-          <button
-            onClick={() => setActivePage('interview')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activePage === 'interview'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-indigo-600'
-            }`}
-          >
-            <Mic size={16} />
-            Entrevista
-          </button>
-          <button
-            onClick={() => setActivePage('debate')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activePage === 'debate'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-indigo-600'
-            }`}
-          >
-            <Target size={16} />
-            Debate
-          </button>
-          <button
-            onClick={() => setActivePage('history')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activePage === 'history'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-indigo-600'
-            }`}
-          >
-            <History size={16} />
-            Meus CVs
-          </button>
-        </motion.div>
-        
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-4"
-        >
-          <div className="hidden text-right sm:block">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sessão</p>
-            <p className="max-w-[180px] truncate text-xs font-bold text-slate-700">
-              {auth.user.full_name || auth.user.email || auth.user.username || 'Usuário autenticado'}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowProfile(!showProfile)}
-            className="flex items-center gap-2 text-slate-600 hover:text-indigo-600 transition-all font-bold text-xs bg-white/50 px-5 py-3 rounded-2xl shadow-sm border border-white/60 backdrop-blur-sm group"
-          >
-            {profile.photo_url ? (
-              <img src={profile.photo_url} alt="Profile" className="w-5 h-5 rounded-full object-cover" />
-            ) : (
-              <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center">
-                <span className="text-[8px] font-bold text-indigo-600">
-                  {profile.full_name ? profile.full_name[0].toUpperCase() : 'U'}
-                </span>
-              </div>
-            )}
-            <span>{profile.full_name || 'Meu Perfil'}</span>
-          </button>
-          <button
-            onClick={handleLogout}
-            disabled={auth.loading}
-            className="flex items-center gap-2 text-slate-600 hover:text-rose-600 transition-all font-bold text-xs bg-white/50 px-4 py-3 rounded-2xl shadow-sm border border-white/60 backdrop-blur-sm disabled:opacity-50"
-          >
-            {auth.loading ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />}
-            <span className="hidden sm:inline">Sair</span>
-          </button>
-        </motion.div>
-      </header>
-
-      {/* Profile Modal */}
-      <AnimatePresence>
-        {showProfile && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowProfile(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[2rem] shadow-2xl p-8 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-2xl font-black text-slate-800">Meu Perfil</h2>
-                <button onClick={() => setShowProfile(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                  <X size={20} />
-                </button>
-              </div>
-
-              {/* Photo Upload */}
-              <div className="flex items-center gap-4 mb-8 p-4 bg-slate-50 rounded-2xl">
-                <div className="relative">
-                  {profile.photo_url ? (
-                    <img src={profile.photo_url} alt="Photo" className="w-20 h-20 rounded-2xl object-cover border-2 border-white shadow-md" />
-                  ) : (
-                    <div className="w-20 h-20 rounded-2xl bg-indigo-100 flex items-center justify-center">
-                      <span className="text-2xl font-bold text-indigo-600">
-                        {profile.full_name ? profile.full_name[0].toUpperCase() : 'U'}
-                      </span>
-                    </div>
-                  )}
-                  {photoUploading && (
-                    <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center">
-                      <Loader2 className="animate-spin text-white" size={20} />
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block">
-                    <span className="text-sm font-bold text-slate-700 cursor-pointer hover:text-indigo-600 transition-colors">
-                      {profile.photo_url ? 'Trocar foto' : 'Adicionar foto'}
-                    </span>
-                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-                  </label>
-                  <p className="text-[10px] text-slate-400 mt-1">JPG, PNG ou WEBP (max 5MB)</p>
-                </div>
-              </div>
-
-              {/* Profile Fields */}
-              <div className="space-y-5 mt-2">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Nome Completo</label>
-                  <input
-                    type="text"
-                    value={profile.full_name}
-                    onChange={(e) => setProfile(prev => ({ ...prev, full_name: e.target.value }))}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                    placeholder="João da Silva"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Email</label>
-                    <input
-                      type="email"
-                      value={profile.email}
-                      onChange={(e) => setProfile(prev => ({ ...prev, email: e.target.value }))}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                      placeholder="email@exemplo.com"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Telefone</label>
-                    <input
-                      type="tel"
-                      value={profile.phone}
-                      onChange={(e) => setProfile(prev => ({ ...prev, phone: e.target.value }))}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                      placeholder="(85) 99999-9999"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Cidade</label>
-                  <input
-                    type="text"
-                    value={profile.city}
-                    onChange={(e) => setProfile(prev => ({ ...prev, city: e.target.value }))}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                    placeholder="Fortaleza, CE"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">LinkedIn</label>
-                    <input
-                      type="url"
-                      value={profile.linkedin}
-                      onChange={(e) => setProfile(prev => ({ ...prev, linkedin: e.target.value }))}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                      placeholder="linkedin.com/in/..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">GitHub</label>
-                    <input
-                      type="url"
-                      value={profile.github}
-                      onChange={(e) => setProfile(prev => ({ ...prev, github: e.target.value }))}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                      placeholder="github.com/..."
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Portfolio</label>
-                  <input
-                    type="url"
-                    value={profile.portfolio}
-                    onChange={(e) => setProfile(prev => ({ ...prev, portfolio: e.target.value }))}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                    placeholder="https://..."
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Resumo Profissional</label>
-                  <textarea
-                    value={profile.summary}
-                    onChange={(e) => setProfile(prev => ({ ...prev, summary: e.target.value }))}
-                    rows={3}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all resize-none"
-                    placeholder="Desenvolvedor Full Stack com X anos de experiência..."
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <Button onClick={() => setShowProfile(false)} variant="secondary" className="flex-1">
-                  Cancelar
-                </Button>
-                <Button onClick={saveProfile} variant="primary" className="flex-1">
-                  <Save size={16} /> Salvar Perfil
-                </Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Conditional Page Rendering */}
       {activePage === 'interview' ? (
         <InterviewPage jobDescription={jobDescription} hasCV={!!generatedCV} apiClient={apiClient} />
       ) : activePage === 'debate' ? (
         <DebatePage apiClient={apiClient} />
       ) : activePage === 'history' ? (
-        <main className="max-w-[1440px] mx-auto px-8 pb-32">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h2 className="text-3xl font-black text-slate-800">Meus CVs Gerados</h2>
-              <p className="text-sm font-medium text-slate-400 mt-1">Todos os currículos que você gerou ficam salvos aqui.</p>
-            </div>
-            <Button onClick={fetchGeneratedCVs} variant="secondary" loading={historyLoading}>
-              Atualizar
-            </Button>
-          </div>
-
-          {generatedCVs.length === 0 && !historyLoading ? (
-            <div className="flex flex-col items-center justify-center py-32 gap-4 opacity-40">
-              <FileText size={56} />
-              <p className="text-sm font-black uppercase tracking-widest text-slate-500">Nenhum CV gerado ainda</p>
-              <p className="text-xs font-medium text-slate-400">Gere seu primeiro currículo na aba Currículo.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {generatedCVs.map(cv => (
-                <motion.div
-                  key={cv.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="glass-card rounded-2xl p-6 border border-slate-100/80 bg-white/70 backdrop-blur-sm"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-                        <FileText size={22} />
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-slate-800">{cv.file_name}</p>
-                        <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
-                          {new Date(cv.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  {cv.job_description && (
-                    <p className="text-xs font-medium text-slate-500 mb-4 line-clamp-2 bg-slate-50 rounded-xl p-3 border border-slate-100">
-                      {cv.job_description}
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <Button onClick={() => previewGeneratedCV(cv.id, cv.file_name)} variant="primary" size="sm" className="flex-1">
-                      <FileText size={14} /> Visualizar
-                    </Button>
-                    <Button onClick={() => downloadGeneratedCV(cv.id, cv.file_name)} variant="secondary" size="sm" className="flex-1">
-                      <Download size={14} /> Baixar
-                    </Button>
-                    <Button onClick={() => deleteGeneratedCV(cv.id)} variant="danger" size="sm">
-                      <X size={14} />
-                    </Button>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-
-          {/* PDF Preview Modal */}
-          <AnimatePresence>
-            {previewingCV && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-                onClick={() => { window.URL.revokeObjectURL(previewingCV.url); setPreviewingCV(null); }}
-              >
-                <motion.div
-                  initial={{ scale: 0.95, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.95, opacity: 0 }}
-                  className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] mx-4 flex flex-col overflow-hidden"
-                  onClick={e => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                    <div className="flex items-center gap-3">
-                      <FileText size={18} className="text-indigo-600" />
-                      <span className="text-sm font-bold text-slate-700">{previewingCV.file_name}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button onClick={() => downloadGeneratedCV(previewingCV.id, previewingCV.file_name)} variant="secondary" size="sm">
-                        <Download size={14} /> Baixar
-                      </Button>
-                      <button onClick={() => { window.URL.revokeObjectURL(previewingCV.url); setPreviewingCV(null); }} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                        <X size={18} />
-                      </button>
-                    </div>
-                  </div>
-                  <iframe src={previewingCV.url} className="flex-1 w-full" title="PDF Preview" />
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </main>
+        <HistoryPage onStatusMessage={setUploadStatus} />
       ) : (
-      <main className="max-w-[1440px] mx-auto px-8 pb-32 grid grid-cols-1 lg:grid-cols-12 gap-10">
-        
-        {/* Left Sidebar */}
-        <div className="lg:col-span-4 space-y-8">
-          
-          <Card className="relative group">
-            <div className="absolute -top-10 -right-10 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-              <Upload size={160} />
-            </div>
-            
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-inner">
-                <FolderOpen size={24} />
+        <main className="max-w-[1440px] mx-auto px-8 pb-32 grid grid-cols-1 lg:grid-cols-12 gap-10">
+          <div className="lg:col-span-4 space-y-8">
+            <Card className="relative group">
+              <div className="absolute -top-10 -right-10 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                <Upload size={160} />
               </div>
-              <div>
-                <h2 className="text-xl font-black text-slate-800">Knowledge Base</h2>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Training Data</p>
-              </div>
-            </div>
-
-            <p className="text-sm font-medium text-slate-500 mb-8 leading-relaxed">
-              Upload your career history. The AI will learn your unique style, achievements, and impact.
-            </p>
-
-            <div className="space-y-4">
-              <label className="group/drop relative block cursor-pointer">
-                <input type="file" multiple accept=".pdf,.html" onChange={handleFileChange} className="hidden" />
-                <div className="w-full py-12 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-3 group-hover/drop:border-indigo-400 group-hover/drop:bg-indigo-50/50 transition-all duration-500 overflow-hidden relative">
-                  <div className="absolute inset-0 bg-indigo-600/5 translate-y-full group-hover/drop:translate-y-0 transition-transform duration-500"></div>
-                  <Upload className="text-slate-300 group-hover/drop:text-indigo-500 group-hover/drop:scale-110 transition-all" size={32} />
-                  <div className="text-center relative z-10">
-                    <span className="block text-sm font-black text-slate-700">Drop files here</span>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">PDF or HTML preferred</span>
-                  </div>
-                </div>
-              </label>
-
-              <label className="group/dir relative block cursor-pointer">
-                <input type="file" // @ts-ignore
-                  webkitdirectory="true" // @ts-ignore
-                  directory="" onChange={handleFileChange} className="hidden" />
-                <div className="w-full py-4 px-6 border border-slate-200 rounded-2xl flex items-center justify-center gap-3 hover:border-indigo-200 hover:bg-slate-50 transition-all duration-300">
-                  <FileCode className="text-slate-400" size={18} />
-                  <span className="text-xs font-black text-slate-600 uppercase tracking-tight">Select Complete Folder</span>
-                </div>
-              </label>
-
-              <AnimatePresence>
-                {files.length > 0 && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-indigo-600 text-white rounded-[1.25rem] p-4 flex items-center justify-between shadow-lg shadow-indigo-200"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="bg-white/20 p-2 rounded-lg">
-                        <FileText size={16} />
-                      </div>
-                      <span className="text-xs font-black">{files.length} Files Ready</span>
-                    </div>
-                    <button onClick={() => setFiles([])} className="p-1 hover:bg-white/20 rounded-md transition-colors">
-                      <X size={16} />
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <Button onClick={handleUpload} disabled={files.length === 0} loading={loading && uploadQueue.active} className="w-full" size="lg">
-                Index Experiences
-              </Button>
-
-              <AnimatePresence>
-                {uploadStatus.message && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                    className={`flex items-center gap-3 p-5 rounded-[1.5rem] border-2 ${
-                      uploadStatus.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 
-                      uploadStatus.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-700' :
-                      'bg-indigo-50 border-indigo-100 text-indigo-700'
-                    }`}
-                  >
-                    {uploadStatus.type === 'success' ? <CheckCircle2 size={20} className="shrink-0" /> : 
-                     uploadStatus.type === 'error' ? <AlertCircle size={20} className="shrink-0" /> : 
-                     <Loader2 className="animate-spin shrink-0" size={20} />}
-                    <span className="text-xs font-black leading-tight uppercase tracking-tight">{uploadStatus.message}</span>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </Card>
-
-          <Card>
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-14 h-14 rounded-2xl bg-violet-50 flex items-center justify-center text-violet-600 shadow-inner">
-                <LayoutDashboard size={24} />
-              </div>
-              <div>
-                <h2 className="text-xl font-black text-slate-800">Target Role</h2>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Optimization Goal</p>
-              </div>
-            </div>
-
-            <p className="text-sm font-medium text-slate-500 mb-6">
-              Paste the job description. RAG will extract the key competencies required.
-            </p>
-
-            <div className="relative group">
-              <textarea 
-                rows={8} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)}
-                placeholder="Ex: Senior Full Stack Developer - Focus on Scalability..."
-                className="w-full p-6 border-2 border-slate-100 rounded-3xl focus:ring-8 focus:ring-indigo-500/5 focus:border-indigo-500 transition-all outline-none resize-none bg-slate-50/50 text-sm font-medium text-slate-700 placeholder:text-slate-300 placeholder:font-bold"
-              ></textarea>
-              <div className="absolute bottom-4 right-4 text-[10px] font-black text-slate-300 uppercase">Input Required</div>
-            </div>
-
-            <Button onClick={handleGenerate} disabled={!jobDescription} loading={loading && !uploadQueue.active} className="w-full mt-6" size="lg">
-              <Sparkles size={18} />
-              Craft Strategic Resume
-            </Button>
-          </Card>
-
-          <Card className="max-h-[480px] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-600">
-                  <History size={20} />
+              <div className="flex items-center gap-4 mb-8">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-inner">
+                  <FolderOpen size={24} />
                 </div>
                 <div>
-                  <h2 className="text-lg font-black text-slate-800">History</h2>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Indexed Items</p>
+                  <h2 className="text-xl font-black text-slate-800">Knowledge Base</h2>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Training Data</p>
                 </div>
               </div>
-              <div className="bg-slate-100 px-3 py-1 rounded-full text-[10px] font-black text-slate-500">{documents.length}</div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
-              {documents.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-30">
-                  <Database size={40} />
-                  <p className="text-[10px] font-black uppercase tracking-widest">Empty Index</p>
+              <p className="text-sm font-medium text-slate-500 mb-8 leading-relaxed">
+                Upload your career history. The AI will learn your unique style, achievements, and impact.
+              </p>
+              <div className="space-y-4">
+                <label className="group/drop relative block cursor-pointer">
+                  <input type="file" multiple accept=".pdf,.html" onChange={handleFileChange} className="hidden" />
+                  <div className="w-full py-12 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-3 group-hover/drop:border-indigo-400 group-hover/drop:bg-indigo-50/50 transition-all duration-500 overflow-hidden relative">
+                    <div className="absolute inset-0 bg-indigo-600/5 translate-y-full group-hover/drop:translate-y-0 transition-transform duration-500"></div>
+                    <Upload className="text-slate-300 group-hover/drop:text-indigo-500 group-hover/drop:scale-110 transition-all" size={32} />
+                    <div className="text-center relative z-10">
+                      <span className="block text-sm font-black text-slate-700">Drop files here</span>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">PDF or HTML preferred</span>
+                    </div>
+                  </div>
+                </label>
+                <label className="group/dir relative block cursor-pointer">
+                  <input type="file"
+                    webkitdirectory="true"
+                    directory="" onChange={handleFileChange} className="hidden" />
+                  <div className="w-full py-4 px-6 border border-slate-200 rounded-2xl flex items-center justify-center gap-3 hover:border-indigo-200 hover:bg-slate-50 transition-all duration-300">
+                    <FileCode className="text-slate-400" size={18} />
+                    <span className="text-xs font-black text-slate-600 uppercase tracking-tight">Select Complete Folder</span>
+                  </div>
+                </label>
+                <AnimatePresence>
+                  {files.length > 0 && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+                      className="bg-indigo-600 text-white rounded-[1.25rem] p-4 flex items-center justify-between shadow-lg shadow-indigo-200"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="bg-white/20 p-2 rounded-lg"><FileText size={16} /></div>
+                        <span className="text-xs font-black">{files.length} Files Ready</span>
+                      </div>
+                      <button onClick={() => setFiles([])} className="p-1 hover:bg-white/20 rounded-md transition-colors"><X size={16} /></button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <Button onClick={handleUpload} disabled={files.length === 0} loading={loading && uploadQueue.active} className="w-full" size="lg">
+                  Index Experiences
+                </Button>
+                <AnimatePresence>
+                  {uploadStatus.message && (
+                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                      className={`flex items-center gap-3 p-5 rounded-[1.5rem] border-2 ${
+                        uploadStatus.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
+                        uploadStatus.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-700' :
+                        'bg-indigo-50 border-indigo-100 text-indigo-700'
+                      }`}
+                    >
+                      {uploadStatus.type === 'success' ? <CheckCircle2 size={20} className="shrink-0" /> :
+                       uploadStatus.type === 'error' ? <AlertCircle size={20} className="shrink-0" /> :
+                       <Loader2 className="animate-spin shrink-0" size={20} />}
+                      <span className="text-xs font-black leading-tight uppercase tracking-tight">{uploadStatus.message}</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </Card>
+
+            <Card>
+              <div className="flex items-center gap-4 mb-8">
+                <div className="w-14 h-14 rounded-2xl bg-violet-50 flex items-center justify-center text-violet-600 shadow-inner">
+                  <LayoutDashboard size={24} />
                 </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-800">Target Role</h2>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Optimization Goal</p>
+                </div>
+              </div>
+              <p className="text-sm font-medium text-slate-500 mb-6">
+                Paste the job description. RAG will extract the key competencies required.
+              </p>
+              <div className="relative group">
+                <textarea rows={8} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)}
+                  placeholder="Ex: Senior Full Stack Developer - Focus on Scalability..."
+                  className="w-full p-6 border-2 border-slate-100 rounded-3xl focus:ring-8 focus:ring-indigo-500/5 focus:border-indigo-500 transition-all outline-none resize-none bg-slate-50/50 text-sm font-medium text-slate-700 placeholder:text-slate-300 placeholder:font-bold"
+                ></textarea>
+                <div className="absolute bottom-4 right-4 text-[10px] font-black text-slate-300 uppercase">Input Required</div>
+              </div>
+              <Button onClick={handleGenerate} disabled={!jobDescription} loading={loading && !uploadQueue.active} className="w-full mt-6" size="lg">
+                <Sparkles size={18} /> Craft Strategic Resume
+              </Button>
+            </Card>
+
+            <Card className="max-h-[480px] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-600">
+                    <History size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-black text-slate-800">History</h2>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Indexed Items</p>
+                  </div>
+                </div>
+                <div className="bg-slate-100 px-3 py-1 rounded-full text-[10px] font-black text-slate-500">{documents.length}</div>
+              </div>
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                {documents.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-30">
+                    <Database size={40} />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Empty Index</p>
+                  </div>
+                ) : (
+                  documents.map(doc => (
+                    <div key={doc.id} className="p-4 rounded-2xl border border-slate-100 bg-white hover:border-indigo-100 hover:shadow-sm transition-all group">
+                      <div className="flex items-center justify-between gap-3 mb-1">
+                        <span className="text-xs font-black text-slate-700 truncate">{doc.name}</span>
+                        <div className={`shrink-0 px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider ${
+                          doc.status === 'SUCCESS' ? 'bg-emerald-50 text-emerald-600' :
+                          doc.status === 'FAILED' ? 'bg-rose-50 text-rose-600' :
+                          'bg-amber-50 text-amber-600'
+                        }`}>
+                          {doc.status}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[9px] text-slate-400 font-bold">{new Date(doc.created_at).toLocaleDateString()}</p>
+                        {doc.error_message && (
+                          <div className="group/err relative">
+                            <Info size={12} className="text-rose-400" />
+                            <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-900 text-white text-[9px] rounded-lg opacity-0 group-hover/err:opacity-100 transition-opacity pointer-events-none z-50">
+                              {doc.error_message}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+          </div>
+
+          <div className="lg:col-span-8">
+            <AnimatePresence mode="wait">
+              {!generatedCV ? (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="h-full min-h-[600px] border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center p-16 text-center bg-white/30 backdrop-blur-sm"
+                >
+                  <div className="w-24 h-24 bg-white rounded-[2.5rem] shadow-xl shadow-indigo-100 flex items-center justify-center text-indigo-100 mb-10">
+                    <FileText size={48} />
+                  </div>
+                  <h3 className="text-3xl font-black text-slate-300 mb-4 tracking-tight">Your Resume Awaits</h3>
+                  <p className="text-slate-400 max-w-sm leading-relaxed font-medium">
+                    Once generated, your strategic resume will be displayed here in high-fidelity PDF format.
+                  </p>
+                  <div className="mt-12 flex items-center gap-4">
+                    <div className="flex -space-x-3">
+                      {[1, 2, 3].map(i => <div key={i} className="w-10 h-10 rounded-full bg-slate-50 border-4 border-white"></div>)}
+                    </div>
+                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Join 500+ professionals</span>
+                  </div>
+                </motion.div>
               ) : (
-                documents.map(doc => (
-                  <div key={doc.id} className="p-4 rounded-2xl border border-slate-100 bg-white hover:border-indigo-100 hover:shadow-sm transition-all group">
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <span className="text-xs font-black text-slate-700 truncate">{doc.name}</span>
-                      <div className={`shrink-0 px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider ${
-                        doc.status === 'SUCCESS' ? 'bg-emerald-50 text-emerald-600' :
-                        doc.status === 'FAILED' ? 'bg-rose-50 text-rose-600' :
-                        'bg-amber-50 text-amber-600'
-                      }`}>
-                        {doc.status}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-[9px] text-slate-400 font-bold">{new Date(doc.created_at).toLocaleDateString()}</p>
-                      {doc.error_message && (
-                        <div className="group/err relative">
-                          <Info size={12} className="text-rose-400" />
-                          <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-900 text-white text-[9px] rounded-lg opacity-0 group-hover/err:opacity-100 transition-opacity pointer-events-none z-50">
-                            {doc.error_message}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* Right Content Area */}
-        <div className="lg:col-span-8">
-          <AnimatePresence mode="wait">
-            {!generatedCV ? (
-              <motion.div 
-                key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="h-full min-h-[600px] border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center p-16 text-center bg-white/30 backdrop-blur-sm"
-              >
-                <div className="w-24 h-24 bg-white rounded-[2.5rem] shadow-xl shadow-indigo-100 flex items-center justify-center text-indigo-100 mb-10 group-hover:scale-110 transition-transform">
-                  <FileText size={48} />
-                </div>
-                <h3 className="text-3xl font-black text-slate-300 mb-4 tracking-tight">Your Resume Awaits</h3>
-                <p className="text-slate-400 max-w-sm leading-relaxed font-medium">
-                  Once generated, your strategic resume will be displayed here in high-fidelity PDF format.
-                </p>
-                <div className="mt-12 flex items-center gap-4">
-                  <div className="flex -space-x-3">
-                    {[1, 2, 3].map(i => <div key={i} className="w-10 h-10 rounded-full bg-slate-50 border-4 border-white"></div>)}
-                  </div>
-                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Join 500+ professionals</span>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
-                <Card className="p-0 overflow-hidden border-none shadow-[0_32px_80px_rgba(0,0,0,0.08)] bg-white">
-                  <div className="bg-slate-900 px-8 py-6 flex flex-col gap-6 lg:flex-row lg:justify-between lg:items-center">
-                    <div className="flex items-center gap-4">
-                      <div className="bg-white/10 p-3 rounded-2xl">
-                        {isEditingCV ? <Edit3 className="text-indigo-400" size={24} /> : <CheckCircle2 className="text-emerald-400" size={24} />}
-                      </div>
-                      <div>
-                        <span className="text-white text-lg font-black block leading-none">
-                          {isEditingCV ? 'Refining Content' : 'Strategic Output'}
-                        </span>
-                        <span className="text-indigo-400/60 text-[10px] font-black uppercase tracking-[0.2em]">Ready for Submission</span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex flex-wrap gap-3">
-                      {isEditingCV ? (
-                        <>
-                          <Button variant="ghost" onClick={handleCancelEdit} disabled={pdfLoading || updatingCV} className="!bg-white/5 !text-white hover:!bg-white/10" size="sm">
-                            <X size={14} /> Cancel
-                          </Button>
-                          <Button variant="success" onClick={handleSaveEdit} loading={pdfLoading} disabled={!editableCV.trim() || updatingCV} size="sm">
-                            <Save size={14} /> Commit Changes
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button variant="secondary" onClick={handleStartEdit} disabled={pdfLoading || downloading} className="!bg-white/5 !text-white !border-white/10 hover:!bg-white/10" size="sm">
-                            <Edit3 size={14} /> Edit Source
-                          </Button>
-                          <Button variant="primary" onClick={handleDownloadPDF} loading={downloading} disabled={pdfLoading} size="sm">
-                            <Download size={14} /> Get PDF
-                          </Button>
-                          <Button variant="ghost" onClick={() => {
-                              navigator.clipboard.writeText(generatedCV);
-                              setUploadStatus({ type: 'success', message: 'Content Copied!' });
-                            }} className="!bg-white/5 !text-white hover:!bg-white/10" size="sm">
-                            <Copy size={14} /> Copy
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-100 p-8">
-                    {isEditingCV ? (
-                      <div className="space-y-6">
-                        <div className="relative group">
-                          <textarea
-                            value={editableCV} onChange={(event) => setEditableCV(event.target.value)}
-                            className="block h-[600px] w-full resize-none rounded-[2rem] border-2 border-slate-200 bg-white p-8 font-mono text-xs leading-relaxed text-slate-800 outline-none transition-all focus:border-indigo-500 shadow-inner"
-                            spellCheck={false}
-                          />
-                          <div className="absolute top-4 right-4 bg-slate-50 px-3 py-1 rounded-full text-[9px] font-black text-slate-400 uppercase">Markdown Editor</div>
-                        </div>
-
-                        <div className="rounded-[2.5rem] border-2 border-indigo-100 bg-indigo-50/30 p-8">
-                          <div className="flex flex-col gap-6 lg:flex-row">
-                            <div className="flex-1 space-y-2">
-                              <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest pl-1">AI Instruction</label>
-                              <textarea
-                                value={editInstruction} onChange={(event) => setEditInstruction(event.target.value)}
-                                rows={3} placeholder="Tell the AI what to change... e.g., 'Make the experience section more action-oriented'."
-                                className="w-full resize-none rounded-2xl border-2 border-white bg-white/80 p-5 text-sm font-medium outline-none transition-all focus:border-indigo-500 shadow-sm"
-                              />
-                            </div>
-                            <div className="lg:w-56 flex flex-col justify-end">
-                              <Button variant="primary" onClick={handleAIUpdateCV} loading={updatingCV} disabled={!editableCV.trim() || !editInstruction.trim() || pdfLoading} className="w-full shadow-indigo-200">
-                                <Wand2 size={18} />
-                                Apply AI Magic
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : pdfLoading ? (
-                      <div className="h-[800px] rounded-[2rem] border-2 border-slate-200 bg-white flex flex-col items-center justify-center gap-6">
-                        <div className="relative">
-                          <div className="w-20 h-20 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin"></div>
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <FileText className="text-indigo-600" size={24} />
-                          </div>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-lg font-black text-slate-800">Rendering high-fidelity PDF</p>
-                          <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Polishing layout and fonts...</p>
-                        </div>
-                      </div>
-                    ) : pdfPreviewUrl ? (
-                      <iframe src={pdfPreviewUrl} title="Resume PDF" className="block h-[840px] w-full rounded-[2rem] border-2 border-slate-200 bg-white shadow-2xl" />
-                    ) : (
-                      <div className="h-[800px] rounded-[2rem] border-2 border-rose-100 bg-rose-50 flex flex-col items-center justify-center gap-6 px-12 text-center">
-                        <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center text-rose-500">
-                          <AlertCircle size={40} />
+                <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
+                  <Card className="p-0 overflow-hidden border-none shadow-[0_32px_80px_rgba(0,0,0,0.08)] bg-white">
+                    <div className="bg-slate-900 px-8 py-6 flex flex-col gap-6 lg:flex-row lg:justify-between lg:items-center">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-white/10 p-3 rounded-2xl">
+                          {isEditingCV ? <Edit3 className="text-indigo-400" size={24} /> : <CheckCircle2 className="text-emerald-400" size={24} />}
                         </div>
                         <div>
-                          <p className="text-xl font-black text-rose-800">Preview Generation Failed</p>
-                          <p className="text-sm font-medium text-rose-500 mt-2">{pdfError || 'The PDF engine encountered an unexpected error.'}</p>
+                          <span className="text-white text-lg font-black block leading-none">
+                            {isEditingCV ? 'Refining Content' : 'Strategic Output'}
+                          </span>
+                          <span className="text-indigo-400/60 text-[10px] font-black uppercase tracking-[0.2em]">Ready for Submission</span>
                         </div>
-                        <Button variant="secondary" onClick={() => refreshPDFPreview(generatedCV)} loading={pdfLoading} className="!border-rose-200 !text-rose-700 hover:!bg-rose-100">
-                          Retry Rendering
-                        </Button>
                       </div>
-                    )}
+                      <div className="flex flex-wrap gap-3">
+                        {isEditingCV ? (
+                          <>
+                            <Button variant="ghost" onClick={handleCancelEdit} disabled={pdfLoading || updatingCV} className="!bg-white/5 !text-white hover:!bg-white/10" size="sm">
+                              <X size={14} /> Cancel
+                            </Button>
+                            <Button variant="success" onClick={handleSaveEdit} loading={pdfLoading} disabled={!editableCV.trim() || updatingCV} size="sm">
+                              <Save size={14} /> Commit Changes
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button variant="secondary" onClick={handleStartEdit} disabled={pdfLoading || downloading} className="!bg-white/5 !text-white !border-white/10 hover:!bg-white/10" size="sm">
+                              <Edit3 size={14} /> Edit Source
+                            </Button>
+                            <Button variant="primary" onClick={handleDownloadPDF} loading={downloading} disabled={pdfLoading} size="sm">
+                              <Download size={14} /> Get PDF
+                            </Button>
+                            <Button variant="ghost" onClick={() => { navigator.clipboard.writeText(generatedCV); setUploadStatus({ type: 'success', message: 'Content Copied!' }); }} className="!bg-white/5 !text-white hover:!bg-white/10" size="sm">
+                              <Copy size={14} /> Copy
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-slate-100 p-8">
+                      {isEditingCV ? (
+                        <div className="space-y-6">
+                          <div className="relative group">
+                            <textarea value={editableCV} onChange={(event) => setEditableCV(event.target.value)}
+                              className="block h-[600px] w-full resize-none rounded-[2rem] border-2 border-slate-200 bg-white p-8 font-mono text-xs leading-relaxed text-slate-800 outline-none transition-all focus:border-indigo-500 shadow-inner"
+                              spellCheck={false}
+                            />
+                            <div className="absolute top-4 right-4 bg-slate-50 px-3 py-1 rounded-full text-[9px] font-black text-slate-400 uppercase">Markdown Editor</div>
+                          </div>
+                          <div className="rounded-[2.5rem] border-2 border-indigo-100 bg-indigo-50/30 p-8">
+                            <div className="flex flex-col gap-6 lg:flex-row">
+                              <div className="flex-1 space-y-2">
+                                <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest pl-1">AI Instruction</label>
+                                <textarea value={editInstruction} onChange={(event) => setEditInstruction(event.target.value)}
+                                  rows={3} placeholder="Tell the AI what to change..."
+                                  className="w-full resize-none rounded-2xl border-2 border-white bg-white/80 p-5 text-sm font-medium outline-none transition-all focus:border-indigo-500 shadow-sm"
+                                />
+                              </div>
+                              <div className="lg:w-56 flex flex-col justify-end">
+                                <Button variant="primary" onClick={handleAIUpdateCV} loading={updatingCV} disabled={!editableCV.trim() || !editInstruction.trim() || pdfLoading} className="w-full shadow-indigo-200">
+                                  <Wand2 size={18} /> Apply AI Magic
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : pdfLoading ? (
+                        <div className="h-[800px] rounded-[2rem] border-2 border-slate-200 bg-white flex flex-col items-center justify-center gap-6">
+                          <div className="relative">
+                            <div className="w-20 h-20 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin"></div>
+                            <div className="absolute inset-0 flex items-center justify-center"><FileText className="text-indigo-600" size={24} /></div>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-lg font-black text-slate-800">Rendering high-fidelity PDF</p>
+                            <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Polishing layout and fonts...</p>
+                          </div>
+                        </div>
+                      ) : pdfPreviewUrl ? (
+                        <iframe src={pdfPreviewUrl} title="Resume PDF" className="block h-[840px] w-full rounded-[2rem] border-2 border-slate-200 bg-white shadow-2xl" />
+                      ) : (
+                        <div className="h-[800px] rounded-[2rem] border-2 border-rose-100 bg-rose-50 flex flex-col items-center justify-center gap-6 px-12 text-center">
+                          <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center text-rose-500"><AlertCircle size={40} /></div>
+                          <div>
+                            <p className="text-xl font-black text-rose-800">Preview Generation Failed</p>
+                            <p className="text-sm font-medium text-rose-500 mt-2">{pdfError || 'The PDF engine encountered an unexpected error.'}</p>
+                          </div>
+                          <Button variant="secondary" onClick={() => refreshPDFPreview(generatedCV)} loading={pdfLoading} className="!border-rose-200 !text-rose-700 hover:!bg-rose-100">
+                            Retry Rendering
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                  <div className="flex justify-center">
+                    <div className="flex items-center gap-3 px-6 py-3 bg-white/50 rounded-full border border-white shadow-sm backdrop-blur-sm">
+                      <AlertCircle size={14} className="text-indigo-400" />
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        Final quality control is advised before official submission.
+                      </p>
+                    </div>
                   </div>
-                </Card>
-                
-                <div className="flex justify-center">
-                  <div className="flex items-center gap-3 px-6 py-3 bg-white/50 rounded-full border border-white shadow-sm backdrop-blur-sm">
-                    <AlertCircle size={14} className="text-indigo-400" />
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                      Final quality control is advised before official submission.
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </main>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </main>
       )}
 
-      {/* Floating Status Bar */}
       <AnimatePresence>
         {uploadQueue.active && (
           <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 100 }} className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50">
@@ -1646,13 +742,11 @@ function App() {
                   {Math.round((uploadQueue.current / uploadQueue.total) * 100)}%
                 </div>
               </div>
-
               <div className="h-4 w-full bg-white/5 rounded-full overflow-hidden mb-6 p-1">
                 <motion.div initial={{ width: 0 }} animate={{ width: `${(uploadQueue.current / uploadQueue.total) * 100}%` }}
                   className="h-full bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 bg-[length:200%_100%] rounded-full"
                 />
               </div>
-
               <div className="space-y-3 mb-6">
                 {uploadQueue.logs.map((log, idx) => (
                   <motion.div key={log + idx} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
@@ -1663,7 +757,6 @@ function App() {
                   </motion.div>
                 ))}
               </div>
-
               <div className="flex gap-6 pt-6 border-t border-white/5">
                 <div className="flex items-center gap-2 text-[10px] font-black text-emerald-400 uppercase tracking-widest">
                   <CheckCircle2 size={16} /> {uploadQueue.success} Valid
@@ -1679,24 +772,11 @@ function App() {
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-        
-        body {
-          font-family: 'Plus Jakarta Sans', sans-serif;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(0,0,0,0.05);
-          border-radius: 20px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(0,0,0,0.1);
-        }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 20px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.1); }
       `}</style>
     </div>
   );
