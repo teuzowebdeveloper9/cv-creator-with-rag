@@ -25,11 +25,13 @@ import {
   LogOut,
   UserPlus,
   LogIn,
-  ShieldCheck
+  ShieldCheck,
+  Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import RagCvLogo from './components/RagCvLogo';
 import InterviewPage from './components/InterviewPage';
+import DebatePage from './components/debate/DebatePage';
 
 const resolveApiBaseUrl = () => {
   const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -407,7 +409,7 @@ function App() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [downloading, setDownloading] = useState<boolean>(false);
   const [showProfile, setShowProfile] = useState<boolean>(false);
-  const [activePage, setActivePage] = useState<'cv' | 'interview' | 'history'>('cv');
+  const [activePage, setActivePage] = useState<'cv' | 'interview' | 'debate' | 'history'>('cv');
   const [generatedCVs, setGeneratedCVs] = useState<{id: number; file_name: string; job_description: string; created_at: string}[]>([]);
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
   const [previewingCV, setPreviewingCV] = useState<{id: number; file_name: string; url: string} | null>(null);
@@ -986,6 +988,17 @@ function App() {
             Entrevista
           </button>
           <button
+            onClick={() => setActivePage('debate')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+              activePage === 'debate'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-600 hover:text-indigo-600'
+            }`}
+          >
+            <Target size={16} />
+            Debate
+          </button>
+          <button
             onClick={() => setActivePage('history')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activePage === 'history'
@@ -1197,6 +1210,8 @@ function App() {
       {/* Conditional Page Rendering */}
       {activePage === 'interview' ? (
         <InterviewPage jobDescription={jobDescription} hasCV={!!generatedCV} apiClient={apiClient} />
+      ) : activePage === 'debate' ? (
+        <DebatePage apiClient={apiClient} />
       ) : activePage === 'history' ? (
         <main className="max-w-[1440px] mx-auto px-8 pb-32">
           <div className="flex items-center justify-between mb-8">

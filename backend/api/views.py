@@ -30,7 +30,7 @@ class HealthCheckView(APIView):
     def get(self, request):
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 from .tasks import process_document_task
-from .models import Document, UserProfile, GeneratedCV
+from .models import Document, UserProfile, GeneratedCV, DebateResult
 
 logger = logging.getLogger(__name__)
 
@@ -1018,3 +1018,101 @@ class ServeGeneratedPDFView(APIView):
             return response
         except Exception as e:
             return _safe_error_response("Failed to serve PDF", e)
+
+
+class DebateView(APIView):
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        from .serializers import DebateSerializer
+        from ai_services.debate import debate_orchestrator
+        from ai_services.document_processor import DocumentProcessor
+
+        cv_text = ''
+        cv_file = request.FILES.get('cv_file')
+
+        if cv_file:
+            ext = os.path.splitext(cv_file.name)[1].lower()
+            if ext not in {'.pdf', '.html', '.htm'}:
+                return Response(
+                    {"error": "Formato não suportado. Use PDF ou HTML."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if cv_file.size > 10 * 1024 * 1024:
+                return Response(
+                    {"error": "Arquivo muito grande (máximo 10MB)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            file_content = cv_file.read()
+            if ext == '.pdf':
+                cv_text = DocumentProcessor.extract_from_pdf(file_content)
+            else:
+                cv_text = DocumentProcessor.extract_from_html(file_content)
+
+            if not cv_text or not cv_text.strip():
+                return Response(
+                    {"error": "Não foi possível extrair texto do arquivo. Tente colar o texto manualmente."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            serializer = DebateSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            cv_text = serializer.validated_data.get('cv_text', '')
+            job_description_raw = serializer.validated_data.get('job_description', '')
+            extra_info = serializer.validated_data.get('extra_info', {})
+
+        if cv_file:
+            job_description_raw = request.data.get('job_description', '')
+            extra_info_raw = request.data.get('extra_info', '{}')
+            try:
+                extra_info = json.loads(extra_info_raw) if isinstance(extra_info_raw, str) else extra_info_raw
+            except (json.JSONDecodeError, TypeError):
+                extra_info = {}
+
+        cv_text = _sanitize_input(cv_text)
+        job_description = _sanitize_input(job_description_raw)
+
+        if not cv_text:
+            return Response(
+                {"error": "Não foi possível obter o texto do currículo."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if _has_prompt_injection(cv_text) or _has_prompt_injection(job_description):
+            return Response(
+                {"error": "A entrada contem padroes nao permitidos."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        def stream_events():
+            try:
+                final_result = None
+                for event in debate_orchestrator.run_debate_stream(cv_text, job_description, extra_info):
+                    if event.get("type") == "complete":
+                        final_result = event.get("data")
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+                if final_result:
+                    DebateResult.objects.create(
+                        owner=request.user,
+                        job_description=job_description[:2000],
+                        cv_preview=cv_text[:500],
+                        result_json=final_result,
+                    )
+            except Exception as e:
+                logger.error(f"Debate stream failed: {e}", exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Ocorreu um erro durante a analise. Tente novamente.'}}, ensure_ascii=False)}\n\n"
+
+        response = StreamingHttpResponse(stream_events(), content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
+
+class DebateHistoryView(APIView):
+    def get(self, request):
+        from .serializers import DebateResultSerializer
+        results = DebateResult.objects.filter(owner=request.user)[:20]
+        serializer = DebateResultSerializer(results, many=True)
+        return Response(serializer.data)

@@ -5,7 +5,8 @@ from .views import (
     HealthCheckView, StartInterviewView, SubmitAnswerView, InterviewDetailView,
     InterviewListView, WeeklyFeedbackView, VoiceTTTView, VoiceSTTView,
     LoginView, LogoutView, RegisterView, SessionView,
-    GeneratedCVListView, GeneratedCVDetailView, ServeGeneratedPDFView
+    GeneratedCVListView, GeneratedCVDetailView, ServeGeneratedPDFView,
+    DebateView, DebateHistoryView
 )
 
 urlpatterns = [
@@ -33,4 +34,6 @@ urlpatterns = [
     path('generated-cvs/', GeneratedCVListView.as_view(), name='generated-cv-list'),
     path('generated-cvs/<int:cv_id>/', GeneratedCVDetailView.as_view(), name='generated-cv-detail'),
     path('generated-cvs/<int:cv_id>/serve/', ServeGeneratedPDFView.as_view(), name='generated-cv-serve'),
+    path('debate/', DebateView.as_view(), name='debate'),
+    path('debate/history/', DebateHistoryView.as_view(), name='debate-history'),
 ]
