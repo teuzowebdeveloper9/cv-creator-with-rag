@@ -124,3 +124,19 @@ class WeeklyFeedback(models.Model):
 
     def __str__(self):
         return f"Weekly Feedback: {self.week_start} to {self.week_end}"
+
+
+class DebateResult(models.Model):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='debate_results')
+    job_description = models.TextField()
+    cv_preview = models.CharField(max_length=500, blank=True, default="")
+    result_json = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Debate Result"
+        verbose_name_plural = "Debate Results"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Debate {self.id} - {self.cv_preview[:50]}"

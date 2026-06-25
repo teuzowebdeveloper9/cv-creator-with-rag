@@ -1,7 +1,7 @@
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from .models import Document, UserProfile, Interview, InterviewQuestion, WeeklyFeedback, GeneratedCV
+from .models import Document, UserProfile, Interview, InterviewQuestion, WeeklyFeedback, GeneratedCV, DebateResult
 
 
 User = get_user_model()
@@ -157,3 +157,28 @@ class SubmitAnswerSerializer(serializers.Serializer):
         if not attrs.get("answer_text") and not attrs.get("answer_audio_url"):
             raise serializers.ValidationError("Provide answer_text or answer_audio_url.")
         return attrs
+
+
+class DebateSerializer(serializers.Serializer):
+    cv_text = serializers.CharField(required=False, allow_blank=True, default='')
+    job_description = serializers.CharField(required=True)
+    extra_info = serializers.JSONField(required=False, default=dict)
+
+    def validate_job_description(self, value):
+        normalized = value.strip()
+        if not normalized:
+            raise serializers.ValidationError("job_description is required.")
+        return normalized
+
+    def validate(self, attrs):
+        cv_text = attrs.get('cv_text', '').strip()
+        if not cv_text:
+            attrs['cv_text'] = ''
+        return attrs
+
+
+class DebateResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DebateResult
+        fields = ['id', 'job_description', 'cv_preview', 'result_json', 'created_at']
+        read_only_fields = ['id', 'created_at']
