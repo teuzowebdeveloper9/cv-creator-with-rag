@@ -16,12 +16,20 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics, permissions
 from rest_framework.parsers import MultiPartParser, FormParser
-from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator, PDFGenerator, BlobStorage
+from ai_services import (
+    DocumentProcessor, QdrantVectorStore, LLMOrchestrator, PDFGenerator, BlobStorage,
+    interview_orchestrator, elevenlabs_service, debate_orchestrator,
+)
 from ai_services.cv_markdown import CV_OUTPUT_RULES, sanitize_cv_markdown
 from .serializers import (
     GenerateSerializer, DocumentSerializer, UpdateCVSerializer, UserProfileSerializer,
-    LoginSerializer, RegisterSerializer, GeneratedCVSerializer
+    LoginSerializer, RegisterSerializer, GeneratedCVSerializer,
+    InterviewSerializer, InterviewListSerializer, InterviewQuestionSerializer,
+    StartInterviewSerializer, SubmitAnswerSerializer, WeeklyFeedbackSerializer,
+    DebateSerializer, DebateResultSerializer,
 )
+from .tasks import process_document_task
+from .models import Document, UserProfile, GeneratedCV, DebateResult, Interview, InterviewQuestion, WeeklyFeedback
 
 
 class HealthCheckView(APIView):
@@ -29,8 +37,7 @@ class HealthCheckView(APIView):
 
     def get(self, request):
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
-from .tasks import process_document_task
-from .models import Document, UserProfile, GeneratedCV, DebateResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -709,15 +716,6 @@ class UpdateCVView(APIView):
             return _safe_error_response("CV update failed", e)
 
 
-from ai_services.interview import interview_orchestrator
-from ai_services.voice import elevenlabs_service
-from .serializers import (
-    InterviewSerializer, InterviewListSerializer, InterviewQuestionSerializer,
-    StartInterviewSerializer, SubmitAnswerSerializer, WeeklyFeedbackSerializer
-)
-from .models import Interview, InterviewQuestion, WeeklyFeedback
-
-
 class StartInterviewView(APIView):
     def post(self, request):
         serializer = StartInterviewSerializer(data=request.data)
@@ -1024,10 +1022,6 @@ class DebateView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
-        from .serializers import DebateSerializer
-        from ai_services.debate import debate_orchestrator
-        from ai_services.document_processor import DocumentProcessor
-
         cv_text = ''
         cv_file = request.FILES.get('cv_file')
 
@@ -1112,7 +1106,6 @@ class DebateView(APIView):
 
 class DebateHistoryView(APIView):
     def get(self, request):
-        from .serializers import DebateResultSerializer
         results = DebateResult.objects.filter(owner=request.user)[:20]
         serializer = DebateResultSerializer(results, many=True)
         return Response(serializer.data)

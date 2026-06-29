@@ -1,21 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
-  AlertCircle,
-  Bot,
-  Brain,
-  CheckCircle2,
-  Clock,
-  Keyboard,
-  Loader2,
-  Mic,
-  MicOff,
-  Play,
-  Pencil,
-  Sparkles,
-  Volume2,
+  AlertCircle, Brain, Bot, CheckCircle2, Keyboard, Loader2, Mic, MicOff, Pencil, Play, Sparkles, Volume2
 } from 'lucide-react';
 import type { AxiosInstance } from 'axios';
+import { OrbAssistant, type VoiceStage } from './OrbAssistant';
+import { StageBadge } from './StageBadge';
 
 interface Question {
   id: number;
@@ -95,142 +85,9 @@ interface InterviewPageProps {
   apiClient: AxiosInstance;
 }
 
-type VoiceStage =
-  | 'idle'
-  | 'assistant_speaking'
-  | 'candidate_ready'
-  | 'listening'
-  | 'transcribing'
-  | 'processing'
-  | 'feedback'
-  | 'completed';
-
 const formatResponsePayload = <T extends InterviewPayload>(payload: T | Interview): T => {
-  if ('interview' in payload) {
-    return payload as T;
-  }
+  if ('interview' in payload) return payload as T;
   return { interview: payload as Interview } as T;
-};
-
-const OrbAssistant = ({
-  stage,
-  interviewerName,
-  subtitle,
-}: {
-  stage: VoiceStage;
-  interviewerName: string;
-  subtitle: string;
-}) => {
-  const isListening = stage === 'listening';
-  const isSpeaking = stage === 'assistant_speaking';
-  const isProcessing = stage === 'processing' || stage === 'transcribing';
-  const isFeedback = stage === 'feedback';
-  const isCompleted = stage === 'completed';
-
-  const coreClasses = isCompleted
-    ? 'from-emerald-300 via-violet-400 to-indigo-600'
-    : isFeedback
-      ? 'from-fuchsia-300 via-violet-400 to-indigo-600'
-      : isProcessing
-        ? 'from-violet-300 via-violet-500 to-indigo-700'
-        : isListening
-          ? 'from-fuchsia-200 via-violet-400 to-purple-700'
-          : isSpeaking
-            ? 'from-violet-200 via-fuchsia-400 to-indigo-700'
-            : 'from-violet-300 via-violet-500 to-indigo-700';
-
-  return (
-    <div className="relative mx-auto flex w-full max-w-[420px] flex-col items-center">
-      <motion.div
-        className="absolute inset-0 -z-10 rounded-full bg-violet-500/20 blur-3xl"
-        animate={{
-          scale: isListening ? [1, 1.18, 1.02] : isSpeaking ? [1, 1.1, 1] : [1, 1.04, 1],
-          opacity: isProcessing ? [0.45, 0.8, 0.45] : [0.35, 0.6, 0.35],
-        }}
-        transition={{ duration: isListening ? 1.4 : 2.2, repeat: Infinity, ease: 'easeInOut' }}
-      />
-
-      <motion.div
-        className="relative flex aspect-square w-[280px] items-center justify-center rounded-full border border-white/10 bg-[#090612]"
-        animate={{
-          rotate: isProcessing ? 360 : 0,
-          y: isListening ? [0, -10, 4, -6, 0] : 0,
-          scale: isListening ? [1, 1.04, 0.98, 1.03, 1] : isSpeaking ? [1, 1.03, 1] : 1,
-        }}
-        transition={{
-          duration: isProcessing ? 6 : isListening ? 2.2 : 2.8,
-          repeat: Infinity,
-          ease: 'easeInOut',
-        }}
-      >
-        <motion.div
-          className={`absolute inset-5 rounded-full bg-gradient-to-br ${coreClasses} opacity-90 blur-sm`}
-          animate={{
-            scale: isListening ? [1, 1.06, 0.98, 1] : isSpeaking ? [1, 1.04, 1] : [1, 1.02, 1],
-          }}
-          transition={{ duration: isListening ? 1 : 2, repeat: Infinity }}
-        />
-        <div className="absolute inset-8 rounded-full border border-white/15 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.35),rgba(121,37,255,0.22)_36%,rgba(11,8,22,0.98)_72%)]" />
-        <motion.div
-          className="absolute inset-[30%] rounded-full border border-white/10 bg-white/10 backdrop-blur-md"
-          animate={{
-            scale: isSpeaking ? [0.92, 1.04, 0.92] : isListening ? [0.96, 1.08, 0.94] : [1, 1.02, 1],
-            opacity: isProcessing ? [0.35, 0.75, 0.35] : [0.55, 0.8, 0.55],
-          }}
-          transition={{ duration: isListening ? 0.9 : 1.8, repeat: Infinity, ease: 'easeInOut' }}
-        />
-
-        <div className="relative z-10 flex flex-col items-center gap-3 text-center">
-          <div className="rounded-full border border-white/15 bg-white/10 px-4 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-violet-100">
-            {interviewerName}
-          </div>
-          <div className="flex items-end gap-1.5">
-            {[0, 1, 2, 3, 4].map((bar) => (
-              <motion.span
-                key={bar}
-                className="w-2 rounded-full bg-white/90"
-                animate={{
-                  height: isSpeaking || isListening
-                    ? [14 + bar * 2, 34 - ((bar + 1) % 3) * 6, 12 + ((bar + 2) % 4) * 5]
-                    : [10, 16, 10],
-                  opacity: isProcessing ? [0.45, 0.9, 0.45] : [0.5, 1, 0.5],
-                }}
-                transition={{
-                  duration: isListening ? 0.7 : isSpeaking ? 1 : 1.8,
-                  repeat: Infinity,
-                  ease: 'easeInOut',
-                  delay: bar * 0.08,
-                }}
-              />
-            ))}
-          </div>
-          <div className="max-w-[180px] text-xs font-semibold leading-5 text-violet-100/90">
-            {subtitle}
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
-
-const StageBadge = ({ stage }: { stage: VoiceStage }) => {
-  const config: Record<VoiceStage, { label: string; className: string }> = {
-    idle: { label: 'Pronto para iniciar', className: 'bg-white/10 text-slate-200 border-white/10' },
-    assistant_speaking: { label: 'IA falando', className: 'bg-violet-500/15 text-violet-100 border-violet-300/20' },
-    candidate_ready: { label: 'Sua vez de responder', className: 'bg-indigo-500/15 text-indigo-100 border-indigo-300/20' },
-    listening: { label: 'Gravando', className: 'bg-fuchsia-500/15 text-fuchsia-100 border-fuchsia-300/20' },
-    transcribing: { label: 'Transcrevendo', className: 'bg-amber-500/15 text-amber-100 border-amber-300/20' },
-    processing: { label: 'Processando resposta', className: 'bg-amber-500/15 text-amber-100 border-amber-300/20' },
-    feedback: { label: 'Feedback pronto', className: 'bg-emerald-500/15 text-emerald-100 border-emerald-300/20' },
-    completed: { label: 'Entrevista concluída', className: 'bg-emerald-500/15 text-emerald-100 border-emerald-300/20' },
-  };
-
-  const current = config[stage];
-  return (
-    <div className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${current.className}`}>
-      {current.label}
-    </div>
-  );
 };
 
 export default function InterviewPage({ jobDescription, hasCV, apiClient }: InterviewPageProps) {
@@ -268,10 +125,7 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
   }, []);
 
   const resetAnswerMedia = useCallback(() => {
-    setAudioURL((prev) => {
-      revokeAudioURL(prev);
-      return null;
-    });
+    setAudioURL((prev) => { revokeAudioURL(prev); return null; });
     setRecordingSeconds(0);
     setTranscriptionReady(false);
     setShowTextInput(false);
@@ -279,13 +133,7 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
 
   const currentQuestion = interview?.questions.find((q) => q.order === interview.current_question) || null;
   const currentPrompt = conversation?.prompt || (currentQuestion
-    ? {
-        question_id: currentQuestion.id,
-        order: currentQuestion.order,
-        total: interview?.total_questions || currentQuestion.order,
-        text: currentQuestion.question_text,
-        audio_url: currentQuestion.question_audio_url,
-      }
+    ? { question_id: currentQuestion.id, order: currentQuestion.order, total: interview?.total_questions || currentQuestion.order, text: currentQuestion.question_text, audio_url: currentQuestion.question_audio_url }
     : null);
   const isCompleted = interview?.status === 'COMPLETED';
   const interviewerName = conversation?.interviewer?.name || 'Violet';
@@ -326,20 +174,13 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
     try {
       const response = await apiClient.get('/interview/feedback/');
       setWeeklyFeedback(response.data);
-    } catch (error) {
-      console.error('Failed to fetch feedback:', error);
-    }
+    } catch { console.error('Failed to fetch feedback:'); }
   }, [apiClient]);
 
   useEffect(() => {
     fetchWeeklyFeedback();
     const interval = setInterval(fetchWeeklyFeedback, 60000);
-    return () => {
-      clearInterval(interval);
-      stopTracks();
-      revokeAudioURL(audioURL);
-      currentAudio?.pause();
-    };
+    return () => { clearInterval(interval); stopTracks(); revokeAudioURL(audioURL); currentAudio?.pause(); };
   }, [audioURL, currentAudio, fetchWeeklyFeedback, revokeAudioURL, stopTracks]);
 
   useEffect(() => {
@@ -350,22 +191,16 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
 
   useEffect(() => {
     if (!weeklyFeedback || weeklyFeedback.is_unlocked) return;
-
     const updateCountdown = () => {
       const now = Date.now() / 1000;
       const diff = weeklyFeedback.unlock_time - now;
-      if (diff <= 0) {
-        setCountdown('Desbloqueado');
-        fetchWeeklyFeedback();
-        return;
-      }
+      if (diff <= 0) { setCountdown('Desbloqueado'); fetchWeeklyFeedback(); return; }
       const days = Math.floor(diff / 86400);
       const hours = Math.floor((diff % 86400) / 3600);
       const minutes = Math.floor((diff % 3600) / 60);
       const seconds = Math.floor(diff % 60);
       setCountdown(`${days}d ${hours}h ${minutes}m ${seconds}s`);
     };
-
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
@@ -373,34 +208,22 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
 
   const playQuestionAudio = useCallback((audioUrl: string) => {
     if (!audioUrl) return;
-    if (currentAudio) {
-      currentAudio.pause();
-      currentAudio.currentTime = 0;
-    }
-
+    if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; }
     const audio = new Audio(audioUrl);
     audio.onplay = () => setIsPlaying(true);
     audio.onended = () => setIsPlaying(false);
     audio.onerror = () => setIsPlaying(false);
     setCurrentAudio(audio);
-    audio.play().catch((error) => {
-      console.error('Failed to play interview prompt:', error);
-      setIsPlaying(false);
-    });
+    audio.play().catch(() => setIsPlaying(false));
   }, [currentAudio]);
 
   useEffect(() => {
     if (!currentPrompt || showEvaluation) return;
     const promptKey = `${interview?.id || 'none'}:${currentPrompt.question_id}`;
     if (lastAutoPlayedPromptRef.current === promptKey) return;
-
     lastAutoPlayedPromptRef.current = promptKey;
-
-    if (currentPrompt.audio_url) {
-      playQuestionAudio(currentPrompt.audio_url);
-    } else {
-      setIsPlaying(false);
-    }
+    if (currentPrompt.audio_url) playQuestionAudio(currentPrompt.audio_url);
+    else setIsPlaying(false);
   }, [currentPrompt, interview?.id, playQuestionAudio, showEvaluation]);
 
   const startInterview = async () => {
@@ -410,24 +233,18 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
     setEvaluation(null);
     setShowEvaluation(false);
     lastAutoPlayedPromptRef.current = '';
-
     try {
       const response = await apiClient.post('/interview/start/', {
-        job_role: jobRole,
-        tech_stack: techStack || jobDescription,
-        job_description: jobDescription,
+        job_role: jobRole, tech_stack: techStack || jobDescription, job_description: jobDescription,
       });
       const payload = formatResponsePayload<InterviewPayload>(response.data);
       setInterview(payload.interview);
       setConversation(payload.conversation || null);
       resetAnswerMedia();
       setCurrentAnswer('');
-    } catch (error) {
-      console.error('Failed to start interview:', error);
+    } catch {
       setErrorMessage('Não foi possível iniciar a entrevista agora. Verifique o áudio e tente novamente.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const startRecording = async () => {
@@ -437,30 +254,19 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
       setShowTextInput(true);
       return;
     }
-
     setErrorMessage('');
     setTranscriptionReady(false);
     setShowTextInput(false);
     setRecordingSeconds(0);
-    setAudioURL((prev) => {
-      revokeAudioURL(prev);
-      return null;
-    });
+    setAudioURL((prev) => { revokeAudioURL(prev); return null; });
     setCurrentAnswer('');
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       streamRef.current = stream;
       audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
+      mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const url = URL.createObjectURL(audioBlob);
@@ -468,11 +274,9 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
         stopTracks();
         await transcribeAudio(audioBlob);
       };
-
       mediaRecorder.start();
       setIsRecording(true);
-    } catch (error) {
-      console.error('Failed to start recording:', error);
+    } catch {
       stopTracks();
       setErrorMessage('Microfone indisponível. Digite sua resposta manualmente.');
       setShowTextInput(true);
@@ -494,52 +298,33 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
       const sttResponse = await apiClient.post('/voice/stt/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-
-      if (sttResponse.data.text) {
-        setCurrentAnswer(sttResponse.data.text);
-        setTranscriptionReady(true);
-      } else {
-        setErrorMessage('Não consegui transcrever o áudio. Digite sua resposta manualmente.');
-        setShowTextInput(true);
-      }
-    } catch (error) {
-      console.error('STT failed:', error);
+      if (sttResponse.data.text) { setCurrentAnswer(sttResponse.data.text); setTranscriptionReady(true); }
+      else { setErrorMessage('Não consegui transcrever o áudio. Digite sua resposta manualmente.'); setShowTextInput(true); }
+    } catch {
       setErrorMessage('Transcrição automática falhou. Digite sua resposta.');
       setShowTextInput(true);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const submitAnswer = async () => {
     if (!interview || !currentPrompt) return;
-
     const answerText = currentAnswer.trim();
-    if (!answerText) {
-      setErrorMessage('Grave ou digite sua resposta antes de enviar.');
-      return;
-    }
-
+    if (!answerText) { setErrorMessage('Grave ou digite sua resposta antes de enviar.'); return; }
     setLoading(true);
     setErrorMessage('');
     setTranscriptionReady(false);
     try {
       const response = await apiClient.post('/interview/answer/', {
-        interview_id: interview.id,
-        question_id: currentPrompt.question_id,
-        answer_text: answerText,
+        interview_id: interview.id, question_id: currentPrompt.question_id, answer_text: answerText,
       });
       const payload = response.data as SubmitAnswerPayload;
       setEvaluation(payload.evaluation);
       setShowEvaluation(true);
       setInterview(payload.interview);
       setConversation(payload.conversation || null);
-    } catch (error) {
-      console.error('Failed to submit answer:', error);
+    } catch {
       setErrorMessage('Não foi possível enviar a resposta. Tente novamente.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const nextQuestion = () => {
@@ -555,12 +340,9 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
         <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/90 px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-violet-700 shadow-sm">
-              <Sparkles size={14} />
-              Simulação guiada por voz
+              <Sparkles size={14} /> Simulação guiada por voz
             </div>
-            <h1 className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
-              Entrevista técnica em modo conversacional
-            </h1>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">Entrevista técnica em modo conversacional</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
               A IA conduz a entrevista com voz sintetizada, você responde gravando sua fala e recebe avaliação logo em seguida.
             </p>
@@ -601,12 +383,9 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                 <div className="text-sm font-black uppercase tracking-[0.18em] text-violet-600/75">Setup da entrevista</div>
                 <h2 className="mt-2 text-2xl font-black text-slate-900">Defina a vaga e comece a simulação</h2>
               </div>
-
               {!hasCV ? (
                 <div className="rounded-[26px] border border-amber-200 bg-amber-50 p-5">
-                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
-                    <AlertCircle size={24} />
-                  </div>
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700"><AlertCircle size={24} /></div>
                   <h3 className="text-lg font-bold text-slate-900">Gere o currículo antes</h3>
                   <p className="mt-2 text-sm leading-6 text-amber-800/90">
                     A entrevista usa a vaga e o histórico do seu perfil para montar perguntas coerentes. Primeiro finalize o currículo na aba principal.
@@ -616,43 +395,23 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                 <div className="space-y-5">
                   <div className="rounded-[24px] border border-violet-200 bg-violet-50 p-4">
                     <div className="mb-2 flex items-center gap-2 text-sm font-black uppercase tracking-[0.18em] text-violet-700">
-                      <Brain size={16} />
-                      Contexto da vaga
+                      <Brain size={16} /> Contexto da vaga
                     </div>
-                    <p className="text-sm leading-6 text-slate-700">
-                      {jobDescription || 'Nenhuma descrição de vaga carregada.'}
-                    </p>
+                    <p className="text-sm leading-6 text-slate-700">{jobDescription || 'Nenhuma descrição de vaga carregada.'}</p>
                   </div>
-
                   <div>
-                    <label className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-                      Cargo alvo
-                    </label>
-                    <input
-                      type="text"
-                      value={jobRole}
-                      onChange={(e) => setJobRole(e.target.value)}
+                    <label className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-500">Cargo alvo</label>
+                    <input type="text" value={jobRole} onChange={(e) => setJobRole(e.target.value)}
                       placeholder="Ex: Desenvolvedor Full Stack Sênior"
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-violet-400/40 focus:bg-white"
-                    />
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-violet-400/40 focus:bg-white" />
                   </div>
-
                   <div>
-                    <label className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-                      Stack priorizada
-                    </label>
-                    <input
-                      type="text"
-                      value={techStack}
-                      onChange={(e) => setTechStack(e.target.value)}
+                    <label className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-500">Stack priorizada</label>
+                    <input type="text" value={techStack} onChange={(e) => setTechStack(e.target.value)}
                       placeholder="Ex: React, Node.js, PostgreSQL, AWS"
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-violet-400/40 focus:bg-white"
-                    />
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-violet-400/40 focus:bg-white" />
                   </div>
-
-                  <button
-                    onClick={startInterview}
-                    disabled={!jobRole.trim() || loading}
+                  <button onClick={startInterview} disabled={!jobRole.trim() || loading}
                     className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#7c3aed,#4f46e5)] px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {loading ? <Loader2 className="animate-spin" size={18} /> : <Mic size={18} />}
@@ -661,13 +420,8 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                 </div>
               )}
             </section>
-
             <section className="rounded-[30px] border border-slate-200 bg-[radial-gradient(circle_at_top,rgba(110,60,255,0.18),rgba(18,14,32,0.98)_36%,rgba(8,6,18,1)_100%)] p-6 shadow-[0_24px_70px_rgba(15,23,42,0.14)] sm:p-8">
-              <OrbAssistant
-                stage="idle"
-                interviewerName="Violet"
-                subtitle="A entrevistadora conduz a conversa com voz sintetizada e turnos claros."
-              />
+              <OrbAssistant stage="idle" interviewerName="Violet" subtitle="A entrevistadora conduz a conversa com voz sintetizada e turnos claros." />
               <div className="mt-6 grid gap-3 text-sm text-slate-300">
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950">1. A IA faz a pergunta</div>
@@ -704,101 +458,71 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                   </div>
                 </div>
               </div>
-
               <div className="mb-6 h-2 overflow-hidden rounded-full bg-white/10">
-                <motion.div
-                  className="h-full rounded-full bg-[linear-gradient(135deg,#8b5cf6,#4f46e5)]"
+                <motion.div className="h-full rounded-full bg-[linear-gradient(135deg,#8b5cf6,#4f46e5)]"
                   initial={{ width: 0 }}
-                  animate={{
-                    width: `${((Math.max((interview.current_question || 1) - (showEvaluation ? 1 : 0), 1)) / Math.max(interview.total_questions, 1)) * 100}%`,
-                  }}
+                  animate={{ width: `${((Math.max((interview.current_question || 1) - (showEvaluation ? 1 : 0), 1)) / Math.max(interview.total_questions, 1)) * 100}%` }}
                   transition={{ duration: 0.45 }}
                 />
               </div>
-
               <OrbAssistant stage={voiceStage} interviewerName={interviewerName} subtitle={orbSubtitle} />
-
               <div className="mt-8 flex flex-col items-center gap-4">
                 {!showEvaluation && voiceStage === 'candidate_ready' && (
-                  <motion.button
-                    onClick={startRecording}
-                    disabled={loading || isPlaying || isCompleted}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                  <motion.button onClick={startRecording} disabled={loading || isPlaying || isCompleted}
+                    whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                     className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-lg shadow-fuchsia-500/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Mic size={32} />
                   </motion.button>
                 )}
-
                 {!showEvaluation && voiceStage === 'listening' && (
-                  <motion.button
-                    onClick={stopRecording}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                  <motion.button onClick={stopRecording} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                     className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/30"
                   >
                     <MicOff size={32} />
                   </motion.button>
                 )}
-
                 {voiceStage === 'listening' && (
                   <div className="flex items-center gap-3 text-sm font-bold text-fuchsia-200">
-                    <motion.div
-                      className="h-3 w-3 rounded-full bg-fuchsia-400"
-                      animate={{ opacity: [1, 0.3, 1] }}
-                      transition={{ duration: 1, repeat: Infinity }}
+                    <motion.div className="h-3 w-3 rounded-full bg-fuchsia-400"
+                      animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1, repeat: Infinity }}
                     />
                     {formattedRecordingTime}
                   </div>
                 )}
-
                 {!showEvaluation && !isRecording && (
                   <div className="flex flex-wrap items-center justify-center gap-3">
-                    <button
-                      onClick={() => currentPrompt?.audio_url && playQuestionAudio(currentPrompt.audio_url)}
+                    <button onClick={() => currentPrompt?.audio_url && playQuestionAudio(currentPrompt.audio_url)}
                       disabled={!currentPrompt?.audio_url || loading}
                       className="inline-flex items-center gap-2 rounded-2xl border border-violet-300/20 bg-violet-500/10 px-4 py-3 text-sm font-bold text-violet-100 transition hover:bg-violet-500/15 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      <Volume2 size={16} />
-                      Ouvir novamente
+                      <Volume2 size={16} /> Ouvir novamente
                     </button>
-
                     {transcriptionReady && (
-                      <button
-                        onClick={submitAnswer}
-                        disabled={loading || !currentAnswer.trim()}
+                      <button onClick={submitAnswer} disabled={loading || !currentAnswer.trim()}
                         className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#7c3aed,#4f46e5)] px-4 py-3 text-sm font-black text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-                        Enviar resposta
+                        {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />} Enviar resposta
                       </button>
                     )}
-
                     {showTextInput && (
-                      <button
-                        onClick={() => setShowTextInput(true)}
+                      <button onClick={() => setShowTextInput(true)}
                         className="inline-flex items-center gap-2 rounded-2xl border border-slate-300/20 bg-slate-500/10 px-4 py-3 text-sm font-bold text-slate-300 transition hover:bg-slate-500/15"
                       >
-                        <Keyboard size={16} />
-                        Digitar resposta
+                        <Keyboard size={16} /> Digitar resposta
                       </button>
                     )}
                   </div>
                 )}
-
                 {showEvaluation && (
-                  <button
-                    onClick={nextQuestion}
+                  <button onClick={nextQuestion}
                     className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#7c3aed,#4f46e5)] px-4 py-3 text-sm font-black text-white transition hover:brightness-110"
                   >
-                    <Play size={16} />
-                    {isCompleted ? 'Revisar resultado final' : 'Próxima pergunta'}
+                    <Play size={16} /> {isCompleted ? 'Revisar resultado final' : 'Próxima pergunta'}
                   </button>
                 )}
               </div>
             </section>
-
             <section className="space-y-6">
               {transcriptionReady && !showEvaluation && (
                 <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
@@ -807,19 +531,15 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                       <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Transcrição</div>
                       <h3 className="mt-1 text-lg font-black text-slate-900">Revise sua resposta</h3>
                     </div>
-                    <button
-                      onClick={() => setShowTextInput(true)}
+                    <button onClick={() => setShowTextInput(true)}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
                     >
-                      <Pencil size={12} />
-                      Editar
+                      <Pencil size={12} /> Editar
                     </button>
                   </div>
-
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-sm leading-6 text-slate-700">{currentAnswer}</p>
                   </div>
-
                   {audioURL && (
                     <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                       <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">Sua gravação</div>
@@ -828,7 +548,6 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                   )}
                 </div>
               )}
-
               {showTextInput && !showEvaluation && (
                 <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
                   <div className="mb-4 flex items-center justify-between">
@@ -837,35 +556,26 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                       <h3 className="mt-1 text-lg font-black text-slate-900">Digite sua resposta</h3>
                     </div>
                     {transcriptionReady && (
-                      <button
-                        onClick={() => setShowTextInput(false)}
+                      <button onClick={() => setShowTextInput(false)}
                         className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
                       >
                         Voltar para transcrição
                       </button>
                     )}
                   </div>
-
-                  <textarea
-                    value={currentAnswer}
-                    onChange={(e) => setCurrentAnswer(e.target.value)}
+                  <textarea value={currentAnswer} onChange={(e) => setCurrentAnswer(e.target.value)}
                     placeholder="Digite sua resposta aqui..."
                     className="h-40 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-violet-400/40"
                   />
-
                   <div className="mt-4 flex justify-end">
-                    <button
-                      onClick={submitAnswer}
-                      disabled={loading || !currentAnswer.trim()}
+                    <button onClick={submitAnswer} disabled={loading || !currentAnswer.trim()}
                       className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#7c3aed,#4f46e5)] px-4 py-3 text-sm font-black text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-                      Enviar resposta
+                      {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />} Enviar resposta
                     </button>
                   </div>
                 </div>
               )}
-
               <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
                 <div className="mb-4 flex items-center gap-2">
                   <Bot size={18} className="text-violet-600" />
@@ -882,7 +592,6 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                   </div>
                 </div>
               </div>
-
               {showEvaluation && evaluation && (
                 <div className="rounded-[28px] border border-emerald-400/15 bg-emerald-500/10 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
                   <div className="mb-4 flex items-center justify-between">
@@ -890,41 +599,31 @@ export default function InterviewPage({ jobDescription, hasCV, apiClient }: Inte
                       <div className="text-xs font-black uppercase tracking-[0.18em] text-emerald-100/70">Avaliação da resposta</div>
                       <h3 className="mt-1 text-xl font-black text-white">Nota {evaluation.score.toFixed(1)}</h3>
                     </div>
-                    <div className="rounded-2xl bg-emerald-300/10 px-4 py-3 text-sm font-black text-emerald-50">
-                      Feedback imediato
-                    </div>
+                    <div className="rounded-2xl bg-emerald-300/10 px-4 py-3 text-sm font-black text-emerald-50">Feedback imediato</div>
                   </div>
-
                   <p className="text-sm leading-6 text-emerald-50/90">{evaluation.feedback}</p>
-
                   {!!evaluation.strengths.length && (
                     <div className="mt-4">
                       <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-emerald-100/70">Pontos fortes</div>
                       <ul className="space-y-2 text-sm text-emerald-50/90">
                         {evaluation.strengths.map((item, index) => (
-                          <li key={`${item}-${index}`} className="rounded-xl border border-emerald-300/10 bg-black/10 px-3 py-2">
-                            {item}
-                          </li>
+                          <li key={`${item}-${index}`} className="rounded-xl border border-emerald-300/10 bg-black/10 px-3 py-2">{item}</li>
                         ))}
                       </ul>
                     </div>
                   )}
-
                   {!!evaluation.improvements.length && (
                     <div className="mt-4">
                       <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-emerald-100/70">Ajustes sugeridos</div>
                       <ul className="space-y-2 text-sm text-emerald-50/90">
                         {evaluation.improvements.map((item, index) => (
-                          <li key={`${item}-${index}`} className="rounded-xl border border-emerald-300/10 bg-black/10 px-3 py-2">
-                            {item}
-                          </li>
+                          <li key={`${item}-${index}`} className="rounded-xl border border-emerald-300/10 bg-black/10 px-3 py-2">{item}</li>
                         ))}
                       </ul>
                     </div>
                   )}
                 </div>
               )}
-
               {isCompleted && interview && (
                 <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
                   <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Resumo da sessão</div>
