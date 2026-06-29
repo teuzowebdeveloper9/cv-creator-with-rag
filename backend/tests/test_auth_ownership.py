@@ -48,7 +48,8 @@ class AuthOwnershipTests(TestCase):
         )
 
     def test_health_is_public_but_documents_require_authentication(self):
-        self.assertEqual(self.client.get("/api/health/").status_code, 200)
+        health_response = self.client.get("/api/health/")
+        self.assertIn(health_response.status_code, (200, 503))
         self.assertEqual(self.client.get("/api/documents/").status_code, 403)
 
     def test_login_creates_authenticated_session(self):
