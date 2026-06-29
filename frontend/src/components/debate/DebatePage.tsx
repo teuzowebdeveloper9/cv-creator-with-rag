@@ -6,24 +6,7 @@ import DebateInputForm from './DebateInputForm';
 import AgentTableScene from './AgentTableScene';
 import FinalProbabilityDashboard from './FinalProbabilityDashboard';
 import { type DebatePhase, type DebateStage, type DebateScores, type DebateFinalResult, type SSEEvent } from './types';
-
-const resolveApiBaseUrl = () => {
-  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
-  if (configuredBase) return configuredBase.replace(/\/+$/, '');
-  if (typeof window === 'undefined') return 'http://localhost:8000/api';
-  const { protocol, hostname, port } = window.location;
-  if (port === '5173') return `${protocol}//${hostname}:8000/api`;
-  return `${window.location.origin.replace(/\/+$/, '')}/api`;
-};
-
-const API_BASE_URL = resolveApiBaseUrl();
-
-const getCookieValue = (name: string) => {
-  if (typeof document === 'undefined') return '';
-  const encodedName = `${encodeURIComponent(name)}=`;
-  const cookie = document.cookie.split('; ').find((row) => row.startsWith(encodedName));
-  return cookie ? decodeURIComponent(cookie.slice(encodedName.length)) : '';
-};
+import { API_BASE_URL, getCookieValue } from '../../api/client';
 
 const getCsrfToken = () => getCookieValue('csrftoken');
 
