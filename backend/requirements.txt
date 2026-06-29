@@ -1,6 +1,7 @@
 django>=4.2,<5.0
 djangorestframework
 django-cors-headers
+django-ratelimit
 qdrant-client
 langchain
 langchain-anthropic
