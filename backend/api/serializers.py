@@ -70,14 +70,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class GenerateSerializer(serializers.Serializer):
-    job_description = serializers.CharField(required=True)
+    job_description = serializers.CharField(required=True, max_length=5000)
     profile_data = serializers.JSONField(required=False, default=dict)
 
 
 class UpdateCVSerializer(serializers.Serializer):
-    current_cv = serializers.CharField(required=True)
-    edit_instruction = serializers.CharField(required=True)
-    job_description = serializers.CharField(required=False, allow_blank=True, default='')
+    current_cv = serializers.CharField(required=True, max_length=20000)
+    edit_instruction = serializers.CharField(required=True, max_length=2000)
+    job_description = serializers.CharField(required=False, allow_blank=True, default='', max_length=5000)
 
 
 class DocumentSerializer(serializers.ModelSerializer):
@@ -160,8 +160,8 @@ class SubmitAnswerSerializer(serializers.Serializer):
 
 
 class DebateSerializer(serializers.Serializer):
-    cv_text = serializers.CharField(required=False, allow_blank=True, default='')
-    job_description = serializers.CharField(required=True)
+    cv_text = serializers.CharField(required=False, allow_blank=True, default='', max_length=20000)
+    job_description = serializers.CharField(required=True, max_length=5000)
     extra_info = serializers.JSONField(required=False, default=dict)
 
     def validate_job_description(self, value):

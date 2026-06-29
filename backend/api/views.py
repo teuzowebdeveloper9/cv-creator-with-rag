@@ -12,10 +12,13 @@ from django.http import StreamingHttpResponse, HttpResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.cache import cache_page
+from django_ratelimit.decorators import ratelimit
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics, permissions
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from ai_services import DocumentProcessor, QdrantVectorStore, LLMOrchestrator, PDFGenerator, BlobStorage
 from ai_services.cv_markdown import CV_OUTPUT_RULES, sanitize_cv_markdown
 from .serializers import (
@@ -26,9 +29,40 @@ from .serializers import (
 
 class HealthCheckView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = []
 
     def get(self, request):
-        return Response({"status": "ok"}, status=status.HTTP_200_OK)
+        checks = {
+            "status": "ok",
+            "database": "ok",
+            "qdrant": "ok",
+            "redis": "ok",
+        }
+
+        try:
+            from django.db import connection
+            connection.ensure_connection()
+        except Exception:
+            checks["database"] = "error"
+
+        try:
+            from ai_services import QdrantVectorStore
+            store = QdrantVectorStore()
+            store.client.get_collections()
+        except Exception:
+            checks["qdrant"] = "error"
+
+        try:
+            from django_redis import get_redis_connection
+            conn = get_redis_connection("default")
+            conn.ping()
+        except Exception:
+            checks["redis"] = "error"
+
+        if any(v == "error" for v in checks.values()):
+            return Response(checks, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(checks, status=status.HTTP_200_OK)
 from .tasks import process_document_task
 from .models import Document, UserProfile, GeneratedCV, DebateResult
 
@@ -49,6 +83,13 @@ _PROMPT_INJECTION_PATTERNS = [
     re.compile(r"act\s+as\s+(a\s+)?(admin|root|system)", re.IGNORECASE),
     re.compile(r"reveal\s+(your|the)\s+(system\s+)?prompt", re.IGNORECASE),
     re.compile(r"override\s+(your|the)\s+instructions", re.IGNORECASE),
+    re.compile(r"new\s+instructions?\s*:", re.IGNORECASE),
+    re.compile(r"system\s+message\s*:", re.IGNORECASE),
+    re.compile(r"forget\s+everything", re.IGNORECASE),
+    re.compile(r"from\s+now\s+on\s+you\s+(are|will|must)", re.IGNORECASE),
+    re.compile(r"pretend\s+you\s+(are|have|can)", re.IGNORECASE),
+    re.compile(r"jailbreak", re.IGNORECASE),
+    re.compile(r"DAN\s+mode", re.IGNORECASE),
 ]
 
 
@@ -233,7 +274,9 @@ def _build_interview_turn_payload(interview) -> dict:
 
 class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
+    @method_decorator(ratelimit(key='ip', rate='5/m', method='POST', block=True))
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
@@ -248,7 +291,9 @@ class RegisterView(APIView):
 
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
+    @method_decorator(ratelimit(key='ip', rate='10/m', method='POST', block=True))
     def post(self, request):
         serializer = LoginSerializer(data=request.data, context={"request": request})
         if not serializer.is_valid():
@@ -496,6 +541,8 @@ def _filter_user_fragments(fragments, user_id):
 
 
 class GenerateView(APIView):
+    throttle_classes = [UserRateThrottle]
+
     def post(self, request):
         serializer = GenerateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -632,6 +679,8 @@ class GenerateView(APIView):
         return response
 
 class UpdateCVView(APIView):
+    throttle_classes = [UserRateThrottle]
+
     def post(self, request):
         serializer = UpdateCVSerializer(data=request.data)
         if not serializer.is_valid():
@@ -719,6 +768,8 @@ from .models import Interview, InterviewQuestion, WeeklyFeedback
 
 
 class StartInterviewView(APIView):
+    throttle_classes = [UserRateThrottle]
+
     def post(self, request):
         serializer = StartInterviewSerializer(data=request.data)
         if not serializer.is_valid():
@@ -1022,6 +1073,7 @@ class ServeGeneratedPDFView(APIView):
 
 class DebateView(APIView):
     parser_classes = (MultiPartParser, FormParser)
+    throttle_classes = [UserRateThrottle]
 
     def post(self, request):
         from .serializers import DebateSerializer
