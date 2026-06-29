@@ -172,6 +172,83 @@ CACHES = {
     }
 }
 
+# Logging Configuration
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'DEBUG' if DEBUG else 'INFO')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'colored': {
+            '()': 'colorlog.ColoredFormatter',
+            'format': '%(log_color)s%(asctime)s %(levelname)-8s%(reset)s %(blue)s[%(name)s]%(reset)s %(message)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+            'log_colors': {
+                'DEBUG':    'cyan',
+                'INFO':     'green',
+                'WARNING':  'yellow',
+                'ERROR':    'red',
+                'CRITICAL': 'bold_red',
+            },
+            'secondary_log_colors': {
+                'message': {
+                    'ERROR':    'red',
+                    'CRITICAL': 'red',
+                    'WARNING':  'yellow',
+                },
+            },
+        },
+        'plain': {
+            'format': '%(asctime)s %(levelname)-8s [%(name)s] %(message)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+    },
+    'filters': {
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
+        'console_colored': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'colored',
+            'filters': ['require_debug_true'],
+        },
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'plain',
+        },
+    },
+    'root': {
+        'handlers': ['console_colored', 'console'],
+        'level': LOG_LEVEL,
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console_colored', 'console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console_colored', 'console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+        'api': {
+            'handlers': ['console_colored', 'console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+        'ai_services': {
+            'handlers': ['console_colored', 'console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+    },
+}
+
 # Additional Security Settings
 SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False') == 'True'
 SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '0'))

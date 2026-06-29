@@ -32,6 +32,7 @@ class ElevenLabsService:
 
         try:
             chosen_voice_id = voice_id or self.default_voice_id
+            logger.info("TTS request: voice=%s, text=%d chars", chosen_voice_id, len(text))
             audio_generator = self.client.text_to_speech.convert(
                 voice_id=chosen_voice_id,
                 text=text,
@@ -39,6 +40,7 @@ class ElevenLabsService:
                 output_format=DEFAULT_OUTPUT_FORMAT,
             )
             audio_bytes = b"".join(audio_generator)
+            logger.info("TTS completed: %d bytes", len(audio_bytes))
             return audio_bytes
         except Exception as e:
             logger.error(f"TTS failed: {e}")
@@ -92,11 +94,14 @@ class ElevenLabsService:
             import io
             audio_file = io.BytesIO(audio_data)
             audio_file.name = "audio.webm"
+            logger.info("STT request: %d bytes", len(audio_data))
             text = self.client.speech_to_text.convert(
                 file=audio_file,
                 model_id="scribe_v1",
             )
-            return text.text if text else None
+            result = text.text if text else None
+            logger.info("STT completed: %d chars", len(result) if result else 0)
+            return result
         except Exception as e:
             logger.error(f"STT failed: {e}")
             return None

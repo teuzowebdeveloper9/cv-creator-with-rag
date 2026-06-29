@@ -132,6 +132,7 @@ class DebateOrchestrator:
     def _search_user_context(self, cv_text: str, job_description: str, limit: int = 8) -> str:
         try:
             query = f"{job_description} {cv_text[:500]}"
+            logger.debug("Debate vector search: query=%d chars, limit=%d", len(query), limit)
             fragments = self.vector_store.search(
                 collection_name=DEBATE_COLLECTION,
                 query=query,
@@ -139,12 +140,14 @@ class DebateOrchestrator:
                 max_per_source=2,
             )
             if not fragments:
+                logger.debug("Debate vector search: no fragments found")
                 return ""
             blocks = []
             for i, frag in enumerate(fragments, 1):
                 text = str(frag.get("text", "")).strip()
                 if text:
                     blocks.append(f"[Fragmento {i}]\n{text}")
+            logger.info("Debate vector search: %d fragments found", len(blocks))
             return "\n\n".join(blocks)
         except Exception as e:
             logger.warning(f"Vector search failed for debate: {e}")
@@ -169,8 +172,10 @@ Descricao da vaga:
 
 Analise a compatibilidade ATS entre o curriculo e a vaga. Retorne o JSON solicitado."""
 
+        logger.info("ATS Specialist analysis started")
         try:
             result = self._call_llm(prompt, ATS_SYSTEM_PROMPT)
+            logger.info("ATS Specialist completed: score=%d, keywords_found=%d", result.get("ats_score_raw", 0), len(result.get("keywords_found", [])))
             return self._normalize_ats_result(result)
         except Exception as e:
             logger.error(f"ATS Specialist failed: {e}")
@@ -204,8 +209,10 @@ Descricao da vaga:
 
 Identifique todos os gaps, riscos e objecoes. Retorne o JSON solicitado."""
 
+        logger.info("Gap Specialist analysis started")
         try:
             result = self._call_llm(prompt, GAP_SYSTEM_PROMPT)
+            logger.info("Gap Specialist completed: %d gaps, %d objections", len(result.get("gaps", [])), len(result.get("objections", [])))
             return self._normalize_gap_result(result)
         except Exception as e:
             logger.error(f"Gap Specialist failed: {e}")
@@ -229,8 +236,10 @@ Vaga: {job_description[:300]}
 
 Modere o debate. Faca perguntas, crie dialogo e gere o JSON solicitado."""
 
+        logger.info("Debate Judge started")
         try:
             result = self._call_llm(prompt, JUDGE_SYSTEM_PROMPT)
+            logger.info("Debate Judge completed: %d debate messages", len(result.get("debate_messages", [])))
             return self._normalize_debate_result(result)
         except Exception as e:
             logger.error(f"Debate Judge failed: {e}")
@@ -304,6 +313,7 @@ Modere o debate. Faca perguntas, crie dialogo e gere o JSON solicitado."""
     def run_debate_stream(
         self, cv_text: str, job_description: str, extra_info: dict
     ) -> Generator[dict, None, None]:
+        logger.info("Debate stream started: cv=%d chars, job=%d chars", len(cv_text), len(job_description))
         context = self._search_user_context(cv_text, job_description)
 
         yield {"type": "stage", "data": {"id": "reading_cv", "label": "Lendo curriculo", "agent": "ATS Specialist", "message": "Analisando a estrutura do curriculo e extraindo informacoes-chave..."}}
@@ -329,9 +339,11 @@ Modere o debate. Faca perguntas, crie dialogo e gere o JSON solicitado."""
         yield {"type": "stage", "data": {"id": "calculating", "label": "Calculando probabilidade final", "agent": "Debate Judge", "message": "Consolidando analises e calculando a probabilidade de aprovacao..."}}
 
         scores = self._calculate_scores(ats_result, gap_result)
+        logger.info("Debate scores calculated: final=%d%%", scores["final_percentage"])
         yield {"type": "scores", "data": scores}
 
         final_result = self._build_final_result(ats_result, gap_result, debate_result, scores)
+        logger.info("Debate completed: %s (%d%%)", final_result["classification"], final_result["percentage"])
         yield {"type": "complete", "data": final_result}
 
     def _normalize_ats_result(self, data: dict) -> dict:

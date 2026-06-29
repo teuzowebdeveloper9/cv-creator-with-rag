@@ -1,6 +1,7 @@
 import os
 import hashlib
 import re
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from qdrant_client import QdrantClient
@@ -8,6 +9,8 @@ from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, P
 from sentence_transformers import SentenceTransformer
 from .interfaces import VectorStore
 from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 class QdrantVectorStore(VectorStore):
     _STOPWORDS = {
@@ -42,6 +45,7 @@ class QdrantVectorStore(VectorStore):
         user_id: Any = None,
         tenant_id: Any = None,
     ):
+        logger.info("Vector upsert: collection=%s, texts=%d", collection_name, len(texts))
         self._ensure_collection(collection_name)
         embeddings = self.encoder.encode(texts)
         payloads = [
@@ -63,6 +67,7 @@ class QdrantVectorStore(VectorStore):
         ]
 
         self.client.upsert(collection_name=collection_name, points=points)
+        logger.info("Vector upsert completed: %d points inserted", len(points))
 
     def search(
         self,
@@ -138,6 +143,7 @@ class QdrantVectorStore(VectorStore):
                 if len(selected) >= limit:
                     break
 
+        logger.debug("Vector search: query_variants=%d, candidates=%d, selected=%d", len(queries), len(merged), len(selected[:limit]))
         return selected[:limit]
 
     def _build_point_id(self, collection_name: str, text: str, metadata: Dict[str, Any], index: int) -> int:

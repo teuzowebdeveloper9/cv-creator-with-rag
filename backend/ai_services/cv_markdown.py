@@ -1,6 +1,9 @@
 import re
 import textwrap
 import unicodedata
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 CV_OUTPUT_RULES = """
@@ -79,6 +82,7 @@ _AI_PREAMBLE_PATTERNS = [
 
 def sanitize_cv_markdown(content: str) -> str:
     """Remove leading assistant chatter while preserving the CV body."""
+    logger.debug("CV markdown sanitization started: %d chars input", len(content))
     clean = content.replace("```markdown", "").replace("```", "")
     clean = clean.replace("\r\n", "\n").replace("\r", "\n")
     clean = textwrap.dedent(clean).strip()
@@ -87,12 +91,19 @@ def sanitize_cv_markdown(content: str) -> str:
     while lines and not lines[0].strip():
         lines.pop(0)
 
+    removed_preamble = 0
     while lines and _is_ai_preamble(lines[0]):
         lines.pop(0)
+        removed_preamble += 1
         while lines and not lines[0].strip():
             lines.pop(0)
 
-    return "\n".join(lines).strip()
+    result = "\n".join(lines).strip()
+    if removed_preamble:
+        logger.info("CV markdown: removed %d AI preamble lines, %d chars output", removed_preamble, len(result))
+    else:
+        logger.debug("CV markdown sanitization completed: %d chars output", len(result))
+    return result
 
 
 def _is_ai_preamble(line: str) -> bool:

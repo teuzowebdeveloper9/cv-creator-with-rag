@@ -64,6 +64,7 @@ class InterviewOrchestrator:
         return " ".join(part.strip() for part in prompt_parts if part and part.strip())
 
     def generate_questions(self, job_role: str, tech_stack: str, profile_context: str) -> list[dict]:
+        logger.info("Question generation started: role=%s, stack=%s", job_role, tech_stack)
         system_prompt = """Voce e um especialista em entrevistas tecnicas para vagas de tecnologia.
 Sua tarefa e gerar 5 perguntas tecnicas relevantes para a vaga especificada.
 
@@ -89,12 +90,15 @@ Gere 5 perguntas tecnicas para entrevista."""
             if response.startswith("```"):
                 response = response.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             questions = json.loads(response)
-            return self._normalize_questions(questions[:5])
+            normalized = self._normalize_questions(questions[:5])
+            logger.info("Questions generated: %d questions", len(normalized))
+            return normalized
         except Exception as e:
             logger.error(f"Failed to generate questions: {e}")
             return self._get_fallback_questions(job_role, tech_stack)
 
     def evaluate_answer(self, question: str, answer: str, job_role: str, tech_stack: str) -> dict:
+        logger.info("Answer evaluation started: question=%d chars, answer=%d chars", len(question), len(answer))
         system_prompt = """Voce e um avaliador de entrevistas tecnicas experiencia.
 Sua tarefa e avaliar a resposta do candidato e fornecer feedback detalhado.
 
@@ -120,7 +124,9 @@ Avalie a resposta e forneça feedback detalhado."""
             if response.startswith("```"):
                 response = response.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             evaluation = json.loads(response)
-            return self._normalize_evaluation(evaluation)
+            normalized = self._normalize_evaluation(evaluation)
+            logger.info("Answer evaluated: score=%.1f", normalized["score"])
+            return normalized
         except Exception as e:
             logger.error(f"Failed to evaluate answer: {e}")
             return self._normalize_evaluation({
@@ -132,16 +138,19 @@ Avalie a resposta e forneça feedback detalhado."""
             })
 
     def search_web(self, query: str) -> str:
+        logger.info("Web search: query=%s", query[:100])
         try:
             from duckduckgo_search import DDGS
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=3))
+                logger.info("Web search: %d results found", len(results))
                 return "\n".join([r.get("body", "") for r in results])
         except Exception as e:
             logger.error(f"Web search failed: {e}")
             return ""
 
     def generate_feedback(self, interview_data: list[dict]) -> dict:
+        logger.info("Feedback generation started: %d interviews", len(interview_data))
         system_prompt = """Voce e um coach de carreira especialista em tecnologia.
 Analise o historico de entrevistas e gere um feedback semanal detalhado.
 
@@ -163,7 +172,9 @@ Gere um feedback semanal completo."""
             response = response.strip()
             if response.startswith("```"):
                 response = response.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-            return json.loads(response)
+            result = json.loads(response)
+            logger.info("Feedback generated: overall_score=%s", result.get("overall_score"))
+            return result
         except Exception as e:
             logger.error(f"Failed to generate feedback: {e}")
             return {
@@ -234,6 +245,7 @@ Gere um feedback semanal completo."""
                 texts=[text],
                 metadatas=[metadata],
             )
+            logger.info("Interview answer saved to vector store: interview=%s, score=%s", interview_id, question_data.get("score", 0))
         except Exception as e:
             logger.error(f"Failed to save to vector store: {e}")
 

@@ -24,7 +24,9 @@ class _BaseLangChainProvider(LLMProvider):
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         try:
+            logger.debug("%s generate: prompt=%d chars", self.__class__.__name__, len(prompt))
             response = self.model.invoke(self._build_messages(prompt, system_prompt))
+            logger.debug("%s generate completed: %d chars", self.__class__.__name__, len(response.content))
             return response.content
         except Exception as e:
             logger.error(f"{self.__class__.__name__} generate failed: {str(e)}")
@@ -32,8 +34,12 @@ class _BaseLangChainProvider(LLMProvider):
 
     def stream(self, prompt: str, system_prompt: str = ""):
         try:
+            logger.debug("%s stream: prompt=%d chars", self.__class__.__name__, len(prompt))
+            chunk_count = 0
             for chunk in self.model.stream(self._build_messages(prompt, system_prompt)):
+                chunk_count += 1
                 yield chunk.content
+            logger.debug("%s stream completed: %d chunks", self.__class__.__name__, chunk_count)
         except Exception as e:
             logger.error(f"{self.__class__.__name__} stream failed: {str(e)}")
             raise e
@@ -69,10 +75,12 @@ class GoogleProvider(LLMProvider):
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         full_prompt = self._full_prompt(prompt, system_prompt)
+        logger.debug("Google generate: prompt=%d chars, models=%s", len(full_prompt), self.model_names)
         last_error = None
         for model_name in self.model_names:
             try:
                 response = self.client.models.generate_content(model=model_name, contents=full_prompt)
+                logger.debug("Google generate completed with %s: %d chars", model_name, len(response.text))
                 return response.text
             except Exception as e:
                 last_error = e
@@ -81,16 +89,20 @@ class GoogleProvider(LLMProvider):
 
     def stream(self, prompt: str, system_prompt: str = ""):
         full_prompt = self._full_prompt(prompt, system_prompt)
+        logger.debug("Google stream: prompt=%d chars, models=%s", len(full_prompt), self.model_names)
         last_error = None
         for model_name in self.model_names:
             try:
                 response = self.client.models.generate_content_stream(model=model_name, contents=full_prompt)
                 yielded = False
+                chunk_count = 0
                 for chunk in response:
                     if chunk.text:
                         yielded = True
+                        chunk_count += 1
                         yield chunk.text
                 if yielded:
+                    logger.debug("Google stream completed with %s: %d chunks", model_name, chunk_count)
                     return
             except Exception as e:
                 last_error = e

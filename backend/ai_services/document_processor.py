@@ -2,6 +2,9 @@ import pdfplumber
 from bs4 import BeautifulSoup
 from typing import List
 import io
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DocumentProcessor:
     MAX_PDF_PAGES = 50
@@ -15,13 +18,16 @@ class DocumentProcessor:
         max_pages: int = MAX_PDF_PAGES,
         max_chars: int = MAX_EXTRACTED_TEXT_CHARS,
     ) -> str:
+        logger.info("PDF extraction started: %d bytes, max_pages=%d", len(file_content), max_pages)
         parts = []
         remaining_chars = max(max_chars, 0)
         if remaining_chars == 0:
             return ""
 
         with pdfplumber.open(io.BytesIO(file_content)) as pdf:
-            for page in pdf.pages[:max_pages]:
+            pages_to_process = pdf.pages[:max_pages]
+            logger.debug("PDF has %d pages, processing %d", len(pdf.pages), len(pages_to_process))
+            for page in pages_to_process:
                 extracted = page.extract_text()
                 if extracted:
                     chunk = (extracted + "\n")[:remaining_chars]
@@ -29,7 +35,9 @@ class DocumentProcessor:
                     remaining_chars -= len(chunk)
                     if remaining_chars <= 0:
                         break
-        return "".join(parts)
+        result = "".join(parts)
+        logger.info("PDF extraction completed: %d chars extracted", len(result))
+        return result
 
     @staticmethod
     def extract_from_html(
@@ -37,12 +45,15 @@ class DocumentProcessor:
         max_bytes: int = MAX_HTML_BYTES,
         max_chars: int = MAX_EXTRACTED_TEXT_CHARS,
     ) -> str:
+        logger.info("HTML extraction started: %d bytes", len(file_content))
         bounded_content = file_content[:max_bytes]
         soup = BeautifulSoup(bounded_content, 'html.parser')
         # Remove script and style elements
         for script_or_style in soup(["script", "style"]):
             script_or_style.decompose()
-        return soup.get_text(separator=' ', strip=True)[:max_chars]
+        result = soup.get_text(separator=' ', strip=True)[:max_chars]
+        logger.info("HTML extraction completed: %d chars extracted", len(result))
+        return result
 
     @staticmethod
     def split_text(
@@ -66,4 +77,5 @@ class DocumentProcessor:
             chunks.append(text[i:i + chunk_size])
             if len(chunks) >= max_chunks:
                 break
+        logger.debug("Text split: %d chars -> %d chunks (size=%d, overlap=%d)", len(text), len(chunks), chunk_size, overlap)
         return chunks

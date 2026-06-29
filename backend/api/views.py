@@ -40,6 +40,7 @@ class HealthCheckView(APIView):
     throttle_classes = []
 
     def get(self, request):
+        logger.debug("Health check requested from %s", request.META.get('REMOTE_ADDR'))
         checks = {
             "status": "ok",
             "database": "ok",
@@ -50,26 +51,31 @@ class HealthCheckView(APIView):
         try:
             from django.db import connection
             connection.ensure_connection()
-        except Exception:
+        except Exception as e:
             checks["database"] = "error"
+            logger.warning("Health check - database failed: %s", e)
 
         try:
             from ai_services import QdrantVectorStore
             store = QdrantVectorStore()
             store.client.get_collections()
-        except Exception:
+        except Exception as e:
             checks["qdrant"] = "error"
+            logger.warning("Health check - qdrant failed: %s", e)
 
         try:
             from django_redis import get_redis_connection
             conn = get_redis_connection("default")
             conn.ping()
-        except Exception:
+        except Exception as e:
             checks["redis"] = "error"
+            logger.warning("Health check - redis failed: %s", e)
 
         if any(v == "error" for v in checks.values()):
+            logger.error("Health check degraded: %s", checks)
             return Response(checks, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        logger.info("Health check OK")
         return Response(checks, status=status.HTTP_200_OK)
 
 logger = logging.getLogger(__name__)
@@ -100,7 +106,10 @@ _PROMPT_INJECTION_PATTERNS = [
 
 
 def _has_prompt_injection(text: str) -> bool:
-    return any(pattern.search(text) for pattern in _PROMPT_INJECTION_PATTERNS)
+    detected = any(pattern.search(text) for pattern in _PROMPT_INJECTION_PATTERNS)
+    if detected:
+        logger.warning("Prompt injection pattern detected in input (length=%d)", len(text))
+    return detected
 
 
 def _sanitize_input(text: str, max_length: int = 10000) -> str:
@@ -286,9 +295,11 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
+            logger.warning("Registration failed: %s", serializer.errors)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         user = serializer.save()
         login(request, user)
+        logger.info("User registered: %s (id=%d)", user.email, user.id)
         return Response(
             {"authenticated": True, "user": _user_payload(user), "csrf_token": get_token(request)},
             status=status.HTTP_201_CREATED,
@@ -303,15 +314,19 @@ class LoginView(APIView):
     def post(self, request):
         serializer = LoginSerializer(data=request.data, context={"request": request})
         if not serializer.is_valid():
+            logger.warning("Login failed: %s", serializer.errors)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         user = serializer.validated_data["user"]
         login(request, user)
+        logger.info("User logged in: %s (id=%d)", user.email, user.id)
         return Response({"authenticated": True, "user": _user_payload(user), "csrf_token": get_token(request)})
 
 
 class LogoutView(APIView):
     def post(self, request):
+        user_email = request.user.email if request.user.is_authenticated else "anonymous"
         logout(request)
+        logger.info("User logged out: %s", user_email)
         return Response({"authenticated": False})
 
 
@@ -330,6 +345,7 @@ class SessionView(APIView):
 
 class UserProfileView(APIView):
     def get(self, request):
+        logger.debug("Profile fetched for user %s", request.user.id)
         profile, _ = UserProfile.objects.get_or_create(
             user=request.user,
             defaults={"email": request.user.email or request.user.username},
@@ -338,6 +354,7 @@ class UserProfileView(APIView):
         return Response(serializer.data)
 
     def put(self, request):
+        logger.info("Profile update for user %s: %s", request.user.id, list(request.data.keys()))
         profile, _ = UserProfile.objects.get_or_create(
             user=request.user,
             defaults={"email": request.user.email or request.user.username},
@@ -345,7 +362,9 @@ class UserProfileView(APIView):
         serializer = UserProfileSerializer(profile, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save(user=request.user)
+            logger.info("Profile updated successfully for user %s", request.user.id)
             return Response(serializer.data)
+        logger.warning("Profile update failed for user %s: %s", request.user.id, serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -355,15 +374,19 @@ class UploadPhotoView(APIView):
     def post(self, request):
         photo = request.FILES.get('photo')
         if not photo:
+            logger.warning("Photo upload attempt with no photo from user %s", request.user.id)
             return Response({"error": "No photo provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         ext = os.path.splitext(photo.name)[1].lower()
         if ext not in {'.jpg', '.jpeg', '.png', '.webp'}:
+            logger.warning("Photo upload rejected (invalid format %s) from user %s", ext, request.user.id)
             return Response({"error": "Only JPG, PNG, WEBP allowed"}, status=status.HTTP_400_BAD_REQUEST)
 
         if photo.size > 5 * 1024 * 1024:
+            logger.warning("Photo upload rejected (too large %d bytes) from user %s", photo.size, request.user.id)
             return Response({"error": "Photo too large (max 5MB)"}, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info("Photo upload started for user %s: %s (%d bytes)", request.user.id, photo.name, photo.size)
         try:
             storage = BlobStorage()
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -371,6 +394,7 @@ class UploadPhotoView(APIView):
             photo_bytes = photo.read()
             blob_key = storage.save_photo(file_name, photo_bytes)
             if not blob_key:
+                logger.error("Photo upload failed - blob storage returned None for user %s", request.user.id)
                 return Response(
                     {"error": "Não foi possível salvar a foto no blob storage."},
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -383,6 +407,7 @@ class UploadPhotoView(APIView):
             profile.photo_url = blob_key
             profile.save()
 
+            logger.info("Photo uploaded successfully for user %s: %s", request.user.id, blob_key)
             return Response({"photo_url": f"{PROFILE_PHOTO_API_PREFIX}{blob_key}"}, status=status.HTTP_200_OK)
         except Exception as e:
             return _safe_error_response("Photo upload failed", e)
@@ -392,11 +417,13 @@ class ServePhotoView(APIView):
     def get(self, request, filename):
         blob_key = _photo_blob_key_from_reference(filename)
         if not _is_user_photo_reference(blob_key, request.user):
+            logger.warning("Photo access denied: key=%s user=%s", blob_key, request.user.id)
             return Response({"error": "Photo not found"}, status=status.HTTP_404_NOT_FOUND)
         try:
             storage = BlobStorage()
             photo_bytes = storage.get_photo(blob_key)
             if not photo_bytes:
+                logger.warning("Photo not found in storage: %s", blob_key)
                 return Response({"error": "Photo not found"}, status=status.HTTP_404_NOT_FOUND)
 
             ext = os.path.splitext(blob_key)[1].lower()
@@ -406,6 +433,7 @@ class ServePhotoView(APIView):
             elif ext == '.webp':
                 content_type = 'image/webp'
 
+            logger.debug("Photo served: %s (%d bytes)", blob_key, len(photo_bytes))
             response = HttpResponse(photo_bytes, content_type=content_type)
             response['Cache-Control'] = 'public, max-age=86400'
             return response
@@ -422,10 +450,13 @@ class DownloadPDFView(APIView):
             as_data_url=True,
         )
         if not md_content:
+            logger.warning("PDF download with empty content from user %s", request.user.id)
             return Response({"error": "Nenhum conteúdo fornecido"}, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info("PDF generation started for user %s (%d chars)", request.user.id, len(md_content))
         try:
             pdf_bytes = PDFGenerator.generate(md_content, photo_url)
+            logger.info("PDF generated: %d bytes for user %s", len(pdf_bytes), request.user.id)
 
             storage = BlobStorage()
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -439,6 +470,7 @@ class DownloadPDFView(APIView):
                     file_name=file_name,
                     job_description=request.data.get('job_description', ''),
                 )
+                logger.info("CV saved: blob=%s user=%s", blob_key, request.user.id)
 
             response = HttpResponse(pdf_bytes, content_type='application/pdf')
             response['Content-Disposition'] = 'inline; filename="curriculo.pdf"'
@@ -452,8 +484,11 @@ class ProviderStatusView(APIView):
         status_data = {}
         for provider in orchestrator.providers:
             provider_name = provider.__class__.__name__.lower().replace('provider', '')
-            status_data[provider_name] = provider.is_available()
-        
+            available = provider.is_available()
+            status_data[provider_name] = available
+            logger.debug("Provider %s: available=%s", provider_name, available)
+
+        logger.info("Provider status checked: %s", status_data)
         return Response(status_data, status=status.HTTP_200_OK)
 
 class UploadView(APIView):
@@ -462,18 +497,22 @@ class UploadView(APIView):
     def post(self, request):
         files = request.FILES.getlist('files')
         if not files:
+            logger.warning("Upload attempt with no files from user %s", request.user.id)
             return Response({"error": "No files provided"}, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info("Upload started: %d file(s) from user %s", len(files), request.user.id)
         created_docs = []
         rejected_files = []
         for file in files:
             ext = os.path.splitext(file.name)[1].lower()
             if ext not in ALLOWED_UPLOAD_EXTENSIONS:
                 rejected_files.append(file.name)
+                logger.debug("File rejected (unsupported format): %s", file.name)
                 continue
 
             if file.size > MAX_UPLOAD_SIZE_BYTES:
                 rejected_files.append(f"{file.name} (exceeds 10MB limit)")
+                logger.debug("File rejected (too large): %s (%d bytes)", file.name, file.size)
                 continue
 
             content = file.read()
@@ -482,6 +521,7 @@ class UploadView(APIView):
             doc = Document.objects.create(owner=request.user, name=file.name, status='PENDING')
             process_document_task.delay(doc.id, content_b64, request.user.id)
             created_docs.append(doc.id)
+            logger.info("File queued for processing: %s (doc_id=%d)", file.name, doc.id)
 
         response_data = {
             "message": f"Queued {len(created_docs)} file(s) for processing.",
@@ -491,6 +531,7 @@ class UploadView(APIView):
             response_data["rejected"] = rejected_files
             response_data["message"] += f" Rejected {len(rejected_files)} file(s) (unsupported format or too large)."
 
+        logger.info("Upload complete: %d accepted, %d rejected for user %s", len(created_docs), len(rejected_files), request.user.id)
         return Response(response_data, status=status.HTTP_202_ACCEPTED)
 
 class DocumentListView(generics.ListAPIView):
@@ -562,10 +603,13 @@ class GenerateView(APIView):
         profile_data["photo_url"] = photo_url
 
         if _has_prompt_injection(job_description):
+            logger.warning("Prompt injection detected in job description from user %s", request.user.id)
             return Response(
                 {"error": "A descrição da vaga contém padrões não permitidos."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        logger.info("CV generation started for user %s (job_desc=%d chars)", request.user.id, len(job_description))
 
         vector_store = QdrantVectorStore()
         orchestrator = LLMOrchestrator()
@@ -573,10 +617,12 @@ class GenerateView(APIView):
         # 0. Pre-check: Are there ANY available providers?
         available_providers = [p for p in orchestrator.providers if p.is_available()]
         if not available_providers:
+            logger.error("No LLM providers available for user %s", request.user.id)
             return Response(
-                {"error": "Nenhum provedor de IA configurado ou disponível. Verifique suas chaves de API."}, 
+                {"error": "Nenhum provedor de IA configurado ou disponível. Verifique suas chaves de API."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
+        logger.debug("Available providers: %s", [p.__class__.__name__ for p in available_providers])
 
         # 1. Multi-query retrieval: search for different sections separately
         try:
@@ -606,6 +652,7 @@ class GenerateView(APIView):
                         frag["_category"] = category_query.split(" e ")[0]
                         all_fragments.append(frag)
 
+            logger.info("Vector search completed: %d fragments found for user %s", len(all_fragments), request.user.id)
             context_text = _format_context_fragments(all_fragments)
         except Exception as e:
             return _safe_error_response("Vector search failed", e)
@@ -646,7 +693,7 @@ class GenerateView(APIView):
 
         {CV_OUTPUT_RULES}
         """
-        
+
         prompt = f"""
         Descricao da Vaga:
         {job_description}
@@ -667,11 +714,13 @@ class GenerateView(APIView):
         """
 
         # 4. Generate the complete CV before streaming it, so we can enforce output hygiene.
+        logger.info("Calling LLM for CV generation (user=%s)", request.user.id)
         try:
             raw_content = _collect_llm_response(orchestrator, prompt, system_prompt)
             cv_content = sanitize_cv_markdown(raw_content)
             if not cv_content:
                 raise Exception("A IA retornou uma resposta vazia.")
+            logger.info("CV generated successfully: %d chars (user=%s)", len(cv_content), request.user.id)
         except Exception as e:
             return _safe_error_response("CV generation failed", e)
 
@@ -697,10 +746,13 @@ class UpdateCVView(APIView):
         job_description = _sanitize_input(serializer.validated_data.get('job_description', ''))
 
         if _has_prompt_injection(edit_instruction) or _has_prompt_injection(job_description):
+            logger.warning("Prompt injection detected in CV update from user %s", request.user.id)
             return Response(
                 {"error": "A instrução contém padrões não permitidos."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        logger.info("CV update started for user %s: instruction=%d chars", request.user.id, len(edit_instruction))
 
         orchestrator = LLMOrchestrator()
         available_providers = [p for p in orchestrator.providers if p.is_available()]
@@ -759,6 +811,7 @@ class UpdateCVView(APIView):
             updated_cv = sanitize_cv_markdown(raw_content)
             if not updated_cv:
                 raise Exception("A IA retornou uma resposta vazia.")
+            logger.info("CV updated successfully: %d chars (user=%s)", len(updated_cv), request.user.id)
             return Response({"markdown": updated_cv}, status=status.HTTP_200_OK)
         except Exception as e:
             return _safe_error_response("CV update failed", e)
@@ -775,6 +828,7 @@ class StartInterviewView(APIView):
         job_role = serializer.validated_data['job_role']
         tech_stack = serializer.validated_data.get('tech_stack', '')
         job_description = serializer.validated_data.get('job_description', '')
+        logger.info("Interview started for user %s: role=%s, stack=%s", request.user.id, job_role, tech_stack)
 
         profile_context = ""
         try:
@@ -795,6 +849,7 @@ class StartInterviewView(APIView):
 
         try:
             questions = interview_orchestrator.generate_questions(job_role, tech_stack, context)
+            logger.info("Generated %d questions for interview (user=%s)", len(questions), request.user.id)
         except Exception as e:
             return _safe_error_response("Failed to generate questions", e)
 
@@ -845,6 +900,7 @@ class SubmitAnswerView(APIView):
         interview_id = serializer.validated_data['interview_id']
         question_id = serializer.validated_data['question_id']
         answer_text = serializer.validated_data.get('answer_text', '')
+        logger.info("Answer submitted: interview=%s, question=%s, user=%s", interview_id, question_id, request.user.id)
 
         try:
             interview = Interview.objects.get(id=interview_id, owner=request.user)
@@ -940,7 +996,10 @@ class WeeklyFeedbackView(APIView):
         saturday = saturday.replace(hour=0, minute=0, second=0, microsecond=0)
 
         if now.timestamp() < saturday.timestamp():
+            logger.warning("Weekly feedback requested before unlock time by user %s", request.user.id)
             return Response({"error": "Feedback not yet available"}, status=status.HTTP_403_FORBIDDEN)
+
+        logger.info("Weekly feedback generation started for user %s", request.user.id)
 
         week_start = saturday - datetime.timedelta(days=7)
         interviews = Interview.objects.filter(
@@ -994,11 +1053,14 @@ class VoiceTTTView(APIView):
         if not text:
             return Response({"error": "No text provided"}, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info("TTS request from user %s: %d chars", request.user.id, len(text))
         audio = elevenlabs_service.text_to_speech(text)
         if audio:
             import base64
             audio_b64 = base64.b64encode(audio).decode()
+            logger.info("TTS completed: %d bytes for user %s", len(audio), request.user.id)
             return Response({"audio": f"data:audio/mp3;base64,{audio_b64}"})
+        logger.error("TTS failed for user %s", request.user.id)
         return Response({"error": "TTS failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -1008,16 +1070,20 @@ class VoiceSTTView(APIView):
         if not audio_file:
             return Response({"error": "No audio provided"}, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info("STT request from user %s: %s (%d bytes)", request.user.id, audio_file.name, audio_file.size)
         audio_data = audio_file.read()
         text = elevenlabs_service.speech_to_text(audio_data)
         if text:
+            logger.info("STT completed: %d chars for user %s", len(text), request.user.id)
             return Response({"text": text})
+        logger.warning("STT returned empty for user %s", request.user.id)
         return Response({"text": "", "error": "STT unavailable - type your answer"}, status=status.HTTP_200_OK)
 
 
 class GeneratedCVListView(APIView):
     def get(self, request):
         cvs = GeneratedCV.objects.filter(owner=request.user).order_by('-created_at')
+        logger.debug("CV list requested: %d CVs for user %s", cvs.count(), request.user.id)
         serializer = GeneratedCVSerializer(cvs, many=True)
         return Response(serializer.data)
 
@@ -1026,17 +1092,21 @@ class GeneratedCVDetailView(APIView):
     def get(self, request, cv_id):
         try:
             cv = GeneratedCV.objects.get(id=cv_id, owner=request.user)
+            logger.debug("CV detail requested: id=%s user=%s", cv_id, request.user.id)
             serializer = GeneratedCVSerializer(cv)
             return Response(serializer.data)
         except GeneratedCV.DoesNotExist:
+            logger.warning("CV not found: id=%s user=%s", cv_id, request.user.id)
             return Response({"error": "CV not found"}, status=status.HTTP_404_NOT_FOUND)
 
     def delete(self, request, cv_id):
         try:
             cv = GeneratedCV.objects.get(id=cv_id, owner=request.user)
         except GeneratedCV.DoesNotExist:
+            logger.warning("CV delete not found: id=%s user=%s", cv_id, request.user.id)
             return Response({"error": "CV not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        logger.info("CV deleted: id=%s blob=%s user=%s", cv_id, cv.blob_key, request.user.id)
         try:
             storage = BlobStorage()
             storage.s3.delete_object(Bucket=storage.bucket_name, Key=cv.blob_key)
@@ -1052,14 +1122,17 @@ class ServeGeneratedPDFView(APIView):
         try:
             cv = GeneratedCV.objects.get(id=cv_id, owner=request.user)
         except GeneratedCV.DoesNotExist:
+            logger.warning("Generated PDF not found: id=%s user=%s", cv_id, request.user.id)
             return Response({"error": "CV not found"}, status=status.HTTP_404_NOT_FOUND)
 
         try:
             storage = BlobStorage()
             pdf_bytes = storage.get_pdf(cv.blob_key)
             if not pdf_bytes:
+                logger.warning("PDF not found in storage: blob=%s", cv.blob_key)
                 return Response({"error": "PDF file not found in storage"}, status=status.HTTP_404_NOT_FOUND)
 
+            logger.debug("PDF served: id=%s size=%d", cv_id, len(pdf_bytes))
             response = HttpResponse(pdf_bytes, content_type='application/pdf')
             response['Content-Disposition'] = f'inline; filename="{cv.file_name}"'
             response['Cache-Control'] = 'public, max-age=3600'
@@ -1125,10 +1198,13 @@ class DebateView(APIView):
             )
 
         if _has_prompt_injection(cv_text) or _has_prompt_injection(job_description):
+            logger.warning("Prompt injection detected in debate from user %s", request.user.id)
             return Response(
                 {"error": "A entrada contem padroes nao permitidos."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        logger.info("Debate started for user %s (cv=%d chars, job=%d chars)", request.user.id, len(cv_text), len(job_description))
 
         def stream_events():
             try:
@@ -1158,5 +1234,6 @@ class DebateView(APIView):
 class DebateHistoryView(APIView):
     def get(self, request):
         results = DebateResult.objects.filter(owner=request.user)[:20]
+        logger.debug("Debate history requested: %d results for user %s", results.count(), request.user.id)
         serializer = DebateResultSerializer(results, many=True)
         return Response(serializer.data)

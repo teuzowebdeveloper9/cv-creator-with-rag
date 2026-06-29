@@ -13,6 +13,8 @@ class LLMOrchestrator:
             GoogleProvider(),
             MistralProvider()
         ]
+        available = [p.__class__.__name__ for p in self.providers if p.is_available()]
+        logger.info("LLM Orchestrator initialized: %d providers, available=%s", len(self.providers), available)
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         for provider in self.providers:

@@ -2,12 +2,14 @@ import os
 import re
 import base64
 import html as html_lib
+import logging
 from urllib.parse import quote, unquote, urlparse
 from weasyprint import HTML
 
 from .blob_storage import is_safe_blob_key
 from .cv_markdown import sanitize_cv_markdown
 
+logger = logging.getLogger(__name__)
 
 class PDFGenerator:
     _PROFILE_PHOTO_PREFIX = "/api/profile/photo/file/"
@@ -20,9 +22,12 @@ class PDFGenerator:
 
     @staticmethod
     def generate(md_content: str, photo_url: str = None) -> bytes:
+        logger.info("PDF generation started: %d chars", len(md_content))
         clean_md = sanitize_cv_markdown(md_content)
         html = PDFGenerator._markdown_to_html(clean_md, photo_url)
+        logger.debug("HTML generated: %d chars", len(html))
         pdf = HTML(string=html, base_url=PDFGenerator._asset_base_url()).write_pdf()
+        logger.info("PDF generation completed: %d bytes", len(pdf))
         return pdf
 
     @staticmethod

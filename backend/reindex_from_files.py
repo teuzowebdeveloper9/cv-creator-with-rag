@@ -20,7 +20,22 @@ from sentence_transformers import SentenceTransformer
 from ai_services.document_processor import DocumentProcessor
 from api.models import Document
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+try:
+    from colorlog import ColoredFormatter
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(ColoredFormatter(
+        '%(log_color)s%(asctime)s %(levelname)-8s%(reset)s %(blue)s[%(name)s]%(reset)s %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        log_colors={
+            'DEBUG': 'cyan', 'INFO': 'green', 'WARNING': 'yellow',
+            'ERROR': 'red', 'CRITICAL': 'bold_red',
+        },
+    ))
+except ImportError:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)-8s [%(name)s] %(message)s', '%Y-%m-%d %H:%M:%S'))
+
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 logger = logging.getLogger(__name__)
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
