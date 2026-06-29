@@ -1,6 +1,7 @@
 import os
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+os.environ.setdefault("DEBUG", "True")
 
 import django
 
